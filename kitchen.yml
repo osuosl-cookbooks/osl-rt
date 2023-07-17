@@ -1,0 +1,14 @@
+---
+verifier:
+  name: inspec
+
+provisioner:
+  name: chef_infra
+  enforce_idempotency: true
+  multiple_converge: 2
+  deprecations_as_errors: true
+
+suites:
+  - name: default
+    run_list:
+      - recipe[osl-rt::default]
