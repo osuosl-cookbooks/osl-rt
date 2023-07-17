@@ -11,4 +11,7 @@ provisioner:
 suites:
   - name: default
     run_list:
-      - recipe[osl-rt::default]
+      - recipe[osl-rt-test::osl_request_tracker]
+    driver:
+      name: openstack
+      flavor_ref: 'm1.large'

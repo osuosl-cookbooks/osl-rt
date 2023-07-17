@@ -15,3 +15,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+node.default['osl-apache']['listen'] = %w(80 443)
+node.default['osl-apache']['worker_mem'] = 215
+
+include_recipe 'osl-apache'
+include_recipe 'osl-apache::mod_ssl'
+include_recipe 'osl-apache::mod_perl'
+include_recipe 'osl-mysql::client'
+include_recipe 'yum-osuosl'
+include_recipe 'perl'
+
+package %w(request-tracker mutt procmail)

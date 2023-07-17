@@ -1,7 +1,5 @@
 # osl-rt
 
-TODO: Enter the cookbook description here.
-
 ## Requirements
 
 ### Platforms
