@@ -114,8 +114,8 @@ module OslRT
       def init_emails(queues, strdomain, strdefault)
         rt_emails = []
         queues.each do |_, email|
-          node.default['osl-postfix']['aliases'][email] = strdefault
-          node.default['osl-postfix']['aliases']["#{email}-comment"] = strdefault
+          node.default['postfix']['aliases'][email] = strdefault
+          node.default['postfix']['aliases']["#{email}-comment"] = strdefault
           node.default['postfix']['transports']["#{email}@#{strdomain}"] = 'local:$myhostname'
           node.default['postfix']['transports']["#{email}-comment@#{strdomain}"] = 'local:$myhostname'
           rt_emails.push(email)

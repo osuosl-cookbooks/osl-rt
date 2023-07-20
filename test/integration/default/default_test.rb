@@ -114,18 +114,18 @@ end
 describe file('/etc/postfix/transport') do
   it { should exist }
   [
-    'frontend-comment@request.osuosl.intnet local:myhostname',
+    'frontend-comment@request.osuosl.intnet local:$myhostname',
     'frontend@request.osuosl.intnet local:$myhostname',
-    'backend-comment@request.osuosl.intnet local:myhostname',
+    'backend-comment@request.osuosl.intnet local:$myhostname',
     'backend@request.osuosl.intnet local:$myhostname',
-    'devops-comment@request.osuosl.intnet local:myhostname',
+    'devops-comment@request.osuosl.intnet local:$myhostname',
     'devops@request.osuosl.intnet local:$myhostname',
-    'advertising-comment@request.osuosl.intnet local:myhostname',
+    'advertising-comment@request.osuosl.intnet local:$myhostname',
     'advertising@request.osuosl.intnet local:$myhostname',
-    'board-comment@request.osuosl.intnet local:myhostname',
+    'board-comment@request.osuosl.intnet local:$myhostname',
     'board@request.osuosl.intnet local:$myhostname',
-    'support-comment@osuosl.intnet local:myhostname',
-    'support@osuosl.intnet local:$myhostname',
+    'support-comment@request.osuosl.intnet local:$myhostname',
+    'support@request.osuosl.intnet local:$myhostname',
   ].each do |line|
     its('content') { should match Regexp.escape line }
   end

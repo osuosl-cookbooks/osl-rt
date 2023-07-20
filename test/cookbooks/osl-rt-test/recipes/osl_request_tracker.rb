@@ -67,9 +67,6 @@ rt_lifecycle = {
   },
 }
 
-node.default['osl-postfix']['main']['mydomain'] = 'request.osuosl.intnet'
-node.default['osl-postfix']['main']['mydestination'] = '$myhostname, localhost.$mydomain, localhost, request.osuosl.intnet'
-
 # Request tracker service
 osl_request_tracker 'request.osuosl.intnet' do
   domain_root 'request.osuosl.intnet'

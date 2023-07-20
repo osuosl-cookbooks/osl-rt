@@ -44,26 +44,32 @@ action :create do
   config_options['_Plugins'] = new_resource.plugins
   config_options['_Lifecycles'] = new_resource.lifecycles
 
-  ruby_block 'Set up the emails' do
-    block do
-      # Set up the queue emails
-      rt_emails = init_emails(new_resource.queues, config_options['$Organization'], new_resource.default_email)
+  # Set up the queue emails
+  #rt_emails = new_resource.queues.values.sort
+  rt_emails = init_emails(new_resource.queues, config_options['$WebDomain'], new_resource.default_email)
 
-      config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{config_options['WebDomain']}))"
+  config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{config_options['WebDomain']}))"
 
-      # Remove the default email from the array
-      rt_emails.pop()
-    end
-    action :nothing
+  # Modify postfix's recipes by changing their templates to our own
+  # After, modify the resource to use our runtime-changed attributes.
+
+  edit_resource(:template, node['postfix']['aliases_db']) do
+    cookbook 'osl-rt'
+    variables({aliases: node.default['postfix']['aliases']})
+  end
+  
+  edit_resource(:template, node['postfix']['transport_db']) do
+    cookbook 'osl-rt'
+    variables({transports: node.default['postfix']['transports']})
   end
 
-  file '/root/emails' do
-    content "#{new_resource.queues}"
-    mode '0400'
-    notifies :run, 'ruby_block[Set up the emails]', :immediately
+  # Modifying main.cf
+  node.default['postfix']['main']['mydomain'] = 'request.osuosl.intnet'
+  node.default['postfix']['main']['mydestination'] = '$myhostname, localhost.$mydomain, localhost, request.osuosl.intnet'
+  edit_resource(:template, "#{node['postfix']['conf_dir']}/main.cf") do
+    variables({settings: node.default['postfix']['main']})
   end
-
-
+  
   # Parse the config hash to a string we can use as
   # the RT_SiteConfig.pm file.
   strConfigFile = parse_config(new_resource.config_options)

@@ -16,9 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-node.default['osl-apache']['listen'] = %w(80 443)
-node.default['osl-apache']['worker_mem'] = 215
-
 include_recipe 'osl-apache'
 include_recipe 'osl-apache::mod_ssl'
 include_recipe 'osl-apache::mod_perl'
