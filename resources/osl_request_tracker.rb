@@ -87,6 +87,7 @@ action :create do
   # Root Account
   template '/root/.rtrc' do
     source 'rt/rtrc.erb'
+    cookbook 'osl-rt'
     user 'root'
     group 'root'
     mode '0600'
@@ -124,38 +125,38 @@ action :create do
     sensitive true
   end
 
-  acme_selfsigned new_resource.domain_name do
-    crt "/etc/pki/tls/certs/#{new_resource.domain_name}.crt"
-    chain "/etc/pki/tls/certs/#{new_resource.domain_name}-chain.crt"
-    key "/etc/pki/tls/certs/#{new_resource.domain_name}.key"
-  end
+#  acme_selfsigned new_resource.domain_name do
+#    crt "/etc/pki/tls/certs/#{new_resource.domain_name}.crt"
+#    chain "/etc/pki/tls/certs/#{new_resource.domain_name}-chain.crt"
+#    key "/etc/pki/tls/certs/#{new_resource.domain_name}.key"
+#  end
 
   # Set up web app
   apache_app new_resource.domain_name do
     directory '/opt/rt/share/html'
-    directive_http ["Redirect permanent / https://#{new_resource.domain_name}"]
+#    directive_http ["Redirect permanent / https://#{new_resource.domain_name}"]
     include_config true
     include_directory 'rt'
     include_name 'rt'
-    ssl_enable true
-    cert_file "/etc/pki/tls/certs/#{new_resource.domain_name}.crt"
-    cert_key "/etc/pki/tls/certs/#{new_resource.domain_name}.key"
-    cert_chain "/etc/pki/tls/certs/#{new_resource.domain_name}-chain.crt"
+#    ssl_enable true
+#    cert_file "/etc/pki/tls/certs/#{new_resource.domain_name}.crt"
+#    cert_key "/etc/pki/tls/certs/#{new_resource.domain_name}.key"
+#    cert_chain "/etc/pki/tls/certs/#{new_resource.domain_name}-chain.crt"
   end
 
   # Make the new self-signed certificate trusted
-  execute 'Trust self-signed cert' do
-    command "cat /etc/pki/tls/certs/#{new_resource.domain_name}.crt >> /etc/ssl/certs/ca-bundle.crt"
-    creates '/tmp/cacrt'
-  end
+#  execute 'Trust self-signed cert' do
+#    command "cat /etc/pki/tls/certs/#{new_resource.domain_name}.crt >> /etc/ssl/certs/ca-bundle.crt"
+#    creates '/tmp/cacrt'
+#  end
 
   # Verify that the certificate is valid
-  execute 'Validate self-signed cert' do
-    command "openssl verify /etc/pki/tls/certs/#{new_resource.domain_name}.crt && touch /tmp/cacrt"
-    retries 5
-    retry_delay 10
-    creates '/tmp/cacrt'
-  end
+#  execute 'Validate self-signed cert' do
+#    command "openssl verify /etc/pki/tls/certs/#{new_resource.domain_name}.crt && touch /tmp/cacrt"
+#    retries 5
+#    retry_delay 10
+#    creates '/tmp/cacrt'
+#  end
 
   # Set up the queues in RT
   new_resource.queues.each do |pt, email|

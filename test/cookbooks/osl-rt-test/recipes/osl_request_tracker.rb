@@ -84,7 +84,7 @@ osl_request_tracker 'request.osuosl.intnet' do
     'The Board Of Directors' => 'board',
     'Support' => 'support'
   })
-  config_options({ '$WebPort' => '443' })
+  config_options({ '$WebPort' => '80' })
 end
 
 # Post-RT install
