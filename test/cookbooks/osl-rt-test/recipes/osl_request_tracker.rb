@@ -69,7 +69,6 @@ rt_lifecycle = {
 
 # Request tracker service
 osl_request_tracker 'request.osuosl.intnet' do
-  domain_root 'request.osuosl.intnet'
   db_name 'rt'
   db_username 'rt-user'
   db_password 'rt-password'
