@@ -116,7 +116,7 @@ end
 
 service 'httpd' do
   action :restart
-  not_if { ::.File.exist?('/tmp/apache-reset')}
+  not_if { ::File.exist?('/tmp/apache-reset') }
 end
 
 file '/tmp/apache-reset'
