@@ -17,7 +17,6 @@ module OslRT
           if key == '_Lifecycles'
             # _Lifecycles contains a recursive key-val/array pair for defining
             # the progress of a ticket
-            strConfig += "#There is a custom lifecycle\n"
             strConfig += parse_lifecycle(value)
             next
           end
@@ -55,7 +54,7 @@ module OslRT
       def parse_lifecycle(hLifecycle)
         # Check to see if there is any configuration given
         unless hLifecycle.empty?
-          return ''
+          return '# The given variable was empty!'
         end
         # Add the Lifecycles option
         strConfig = 'Set(%Lifecycles,\n'

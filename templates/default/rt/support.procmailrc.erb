@@ -12,11 +12,11 @@ LOGFILE=$MAILDIR/from
 /dev/null
 
 <% @rt_queues.each do |queue, email| -%>
-:0c :
+:0:.rt-mailparse.lock
 * ^X-Original-To: <%= email %>@<%= @domain_name %>
 | /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action correspond --url http://<%= @domain_name %>
 
-:0c :
+:0:.rt-mailparse.lock
 * ^X-Original-To: <%= email %>-comment@<%= @domain_name %>
 | /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action comment --url http://<%= @domain_name %>
 <% end -%>

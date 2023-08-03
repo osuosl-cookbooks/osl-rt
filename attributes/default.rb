@@ -11,3 +11,7 @@ default['postfix']['access']['140.211.166.133'] = 'OK' # smtp2.osuosl.org
 default['postfix']['access']['140.211.166.136'] = 'OK' # smtp3.osuosl.org
 default['postfix']['access']['140.211.166.137'] = 'OK' # smtp4.osuosl.org
 default['postfix']['access']['140.211.166.138'] = 'OK' # smtp1.osuosl.org
+
+# RT defaults
+default['osl-rt']['lifecycles'] = {}
+default['osl-rt']['plugins'] = {}

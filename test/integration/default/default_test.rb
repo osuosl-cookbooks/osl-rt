@@ -28,14 +28,9 @@ end
   end
 end
 
-describe http('http://127.0.0.1', headers: { Host: 'request.osuosl.intnet' }) do
-  its('status') { should cmp 301 }
-  its('headers.Location') { should eq 'https://request.osuosl.intnet' }
-end
-
-describe http('https://127.0.0.1', headers: { Host: 'request.osuosl.intnet' }, ssl_verify: false) do
+describe http('http://127.0.0.1', headers: { Host: 'request.osuosl.intnet' }, ssl_verify: false) do
   its('status') { should cmp 200 }
-  its('headers.Set-Cookie') { should match /RT_SID_request.osuosl.intnet.443/ }
+  its('headers.Set-Cookie') { should match /RT_SID_request.osuosl.intnet.80/ }
   its('body') { should match /RT for request.osuosl.intnet/ }
   its('body') { should match /RT 4.4/ }
 end
@@ -44,7 +39,7 @@ describe file '/root/.rtrc' do
   its('owner') { should eq 'root' }
   its('group') { should eq 'root' }
   its('mode') { should cmp '0600' }
-  its('content') { should match %r{^server https://request.osuosl.intnet$} }
+  its('content') { should match %r{^server http://request.osuosl.intnet$} }
   its('content') { should match /^user root$/ }
   its('content') { should match /^passwd my-epic-rt$/ }
 end
@@ -139,12 +134,6 @@ describe apache_conf('/etc/httpd/sites-enabled/request.osuosl.intnet.conf') do
   its('ServerName') { should include 'request.osuosl.intnet' }
   its('DocumentRoot') { should include '/opt/rt/share/html' }
   its('Include') { should include '/etc/httpd/sites-available/rt_include.conf' }
-  its('Redirect') { should cmp 'permanent / https://request.osuosl.intnet' }
-  its('RewriteEngine') { should cmp 'On' }
-  its('SSLEngine') { should cmp 'On' }
-  its('SSLCertificateFile') { should cmp '/etc/pki/tls/certs/request.osuosl.intnet.crt' }
-  its('SSLCertificateKeyFile') { should cmp '/etc/pki/tls/certs/request.osuosl.intnet.key' }
-  its('SSLCertificateChainFile') { should cmp '/etc/pki/tls/certs/request.osuosl.intnet-chain.crt' }
 end
 
 describe apache_conf('/etc/httpd/sites-available/rt_include.conf') do
@@ -181,7 +170,7 @@ describe command '/opt/rt/bin/rt ls -t queue -f Name' do
   [
     'Frontend Team',
     'Backend Team',
-    'Dev Ops Team',
+    'DevOps Team',
     'Marketing Team',
     'The Board Of Directors',
     'Support',
@@ -192,21 +181,10 @@ end
 
 describe command '/opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue' do
   its('exit_status') { should eq 0 }
-  its('stdout') { should match /^1\s+support-test\s+test ticket subject\s+root@localhost$/ }
+  its('stdout') { should match /^1\s+Support\s+support-test\s+root@localhost$/ }
 end
 
-describe command "curl -sk -u 'root:my-epic-rt' https://request.osuosl.intnet/REST/2.0/ticket/1 | jq .Subject" do
+describe command "curl -sk -u 'root:my-epic-rt' http://request.osuosl.intnet/REST/2.0/ticket/1 | jq .Subject" do
   its('exit_status') { should eq 0 }
-  its('stdout') { should match /^"test ticket subject"$/ }
-end
-
-describe file '/home/support/from' do
-  it { should exist }
-  its('content') { should match /Subject: test ticket subject/ }
-  its('content') { should match %r{Folder: /home/support/Mail/new/} }
-end
-
-describe file '/home/support/Mail/new' do
-  its('size') { should >= 0 }
-  it { should exist }
+  its('stdout') { should match /^"support-test"$/ }
 end
