@@ -22,6 +22,11 @@ describe 'osl-rt::default' do
   cached(:subject) { chef_run }
   platform 'almalinux', '8'
 
+  # Stubbing
+  stubs_for_resource('template[/home/support/.procmailrc]') do |r|
+    allow(r).to receive_shell_out('id -nu 1001')
+  end
+
   # Testing attributes
   default_attributes['osl-rt']['queues'].tap do |q|
     q['Support'] = 'support'

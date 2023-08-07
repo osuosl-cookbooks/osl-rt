@@ -82,7 +82,7 @@ file '/opt/rt/etc/RT_SiteConfig.pm' do
   group 'apache'
   mode '0640'
   sensitive true
-  notifies :restart, 'apache2_service[osuosl]', :immediately
+  notifies :reload, 'apache2_service[osuosl]', :immediately
 end
 
 # Initalize the DB
@@ -114,20 +114,6 @@ apache_app node['osl-rt']['fqdn'] do
   include_name 'rt'
 end
 
-service 'httpd' do
-  action :restart
-  not_if { ::File.exist?('/tmp/apache-reset') }
-end
-
-file '/tmp/apache-reset'
-
-# Restart the web app, ONLY ONCE!
-#execute 'Restart apache' do
-#  command 'touch /tmp/apache-reset'
-#  creates '/tmp/apache-reset'
-#  notifies :restart, 'apache2_service[osuosl]', :immediately
-#end
-
 # Set up the queues in RT
 node['osl-rt']['queues'].each do |pt, email|
   execute "Creating RT queue for #{pt}" do
@@ -138,6 +124,9 @@ node['osl-rt']['queues'].each do |pt, email|
       && touch /tmp/#{email}done
     EOL
     creates "/tmp/#{email}done"
+
+    delayed_action :run
+    action :nothing
   end
 end
 
