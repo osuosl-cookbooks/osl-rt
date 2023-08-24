@@ -113,10 +113,10 @@ module OslRT
       def init_emails(queues, strdomain, strdefault)
         rt_emails = []
         queues.each do |_, email|
-          node.default['postfix']['aliases'][email] = strdefault
-          node.default['postfix']['aliases']["#{email}-comment"] = strdefault
-          node.default['postfix']['transports']["#{email}@#{strdomain}"] = 'local:$myhostname'
-          node.default['postfix']['transports']["#{email}-comment@#{strdomain}"] = 'local:$myhostname'
+          node.force_override['postfix']['aliases'][email] = strdefault
+          node.force_override['postfix']['aliases']["#{email}-comment"] = strdefault
+          node.force_override['postfix']['transports']["#{email}@#{strdomain}"] = 'local:$myhostname'
+          node.force_override['postfix']['transports']["#{email}-comment@#{strdomain}"] = 'local:$myhostname'
           rt_emails.push(email)
         end
         rt_emails.sort

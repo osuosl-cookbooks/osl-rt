@@ -82,7 +82,7 @@ file '/opt/rt/etc/RT_SiteConfig.pm' do
   group 'apache'
   mode '0640'
   sensitive true
-  notifies :reload, 'apache2_service[osuosl]', :immediately
+  notifies :reload, 'apache2_service[osuosl]'
 end
 
 # Initalize the DB
@@ -101,7 +101,15 @@ end
 
 # Set a new password for root
 execute 'Set root password' do
-  command "mysql -u #{config_options['$DatabaseUser']} -p#{config_options['$DatabasePassword']} -e 'UPDATE Users SET Password=md5(\"#{node['osl-rt']['root-password']}\") WHERE Name=\"root\";' #{config_options['$DatabaseName']} && touch /opt/rt/chef/init-root-passwd"
+  command <<-EOH
+    mysql -u #{config_options['$DatabaseUser']} \
+      -p#{config_options['$DatabasePassword']} \
+      -e 'UPDATE Users \
+        SET Password=md5(\"#{node['osl-rt']['root-password']}\") \
+        WHERE Name=\"root\";' \
+      #{config_options['$DatabaseName']} && \
+    touch /opt/rt/chef/init-root-passwd
+  EOH
   creates '/opt/rt/chef/init-root-passwd'
   sensitive true
 end
@@ -114,6 +122,12 @@ apache_app node['osl-rt']['fqdn'] do
   include_name 'rt'
 end
 
+# Forcefully reload Apache during the initial run, in order to allow for setting up the queues properly.
+service 'httpd' do
+  action :reload
+  not_if File.exist?('/var/spool/mail/nobody')
+end
+
 # Set up the queues in RT
 node['osl-rt']['queues'].each do |pt, email|
   execute "Creating RT queue for #{pt}" do
@@ -124,9 +138,6 @@ node['osl-rt']['queues'].each do |pt, email|
       && touch /tmp/#{email}done
     EOL
     creates "/tmp/#{email}done"
-
-    delayed_action :run
-    action :nothing
   end
 end
 
@@ -151,15 +162,13 @@ template "/home/#{node['osl-rt']['default']}/.procmailrc" do
   variables(
     rt_queues: node['osl-rt']['queues'],
     domain_name: node['osl-rt']['fqdn'],
-    error_email: "#{shell_out('id -nu 1001').stdout[0..-2]}@localhost"
+    error_email: node['platform']
   )
 end
 
 # Set up procmail in the default user's account
-file '/home/almalinux/.procmailrc' do
+file '/etc/procmailrc' do
   content "DEFAULT=$HOME/Mail/\nPATH=/usr/local/bin:/usr/bin:/bin\nMAILDIR=$HOME/Mail/\nLOGFILE=$MAILDIR/from"
-  user 1001
-  group 1001
 end
 
 # Mutt Configuration
@@ -167,14 +176,6 @@ cookbook_file '/etc/Muttrc.local' do
   source 'rt/Muttrc.local'
   cookbook 'osl-rt'
 end
-
-node['osl-rt']['queues'].each do |_, email|
-  node.default['postfix']['aliases'][email] = node['osl-rt']['default']
-  node.default['postfix']['aliases']["#{email}-comment"] = node['osl-rt']['default']
-  node.default['postfix']['transports']["#{email}@#{node['osl-rt']['fqdn']}"] = 'local:$myhostname'
-  node.default['postfix']['transports']["#{email}-comment@#{node['osl-rt']['fqdn']}"] = 'local:$myhostname'
-end
-node.force_override['postfix']['aliases'][node['osl-rt']['default']] = node['osl-rt']['default']
 
 node.default['osl-postfix']['main']['mydestination'] = "$myhostname, localhost.$mydomain, localhost, #{node['osl-rt']['fqdn']}"
 node.default['osl-postfix']['main']['mydomain'] = node['osl-rt']['fqdn']

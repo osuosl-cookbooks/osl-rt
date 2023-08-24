@@ -22,12 +22,7 @@ describe 'osl-rt::default' do
   cached(:subject) { chef_run }
   platform 'almalinux', '8'
 
-  # Stubbing
-  stubs_for_resource('template[/home/support/.procmailrc]') do |r|
-    allow(r).to receive_shell_out('id -nu 1001')
-  end
-
-  # Testing attributes
+  # Attributes
   default_attributes['osl-rt']['queues'].tap do |q|
     q['Support'] = 'support'
     q['Frontend Team'] = 'frontend'
@@ -48,10 +43,11 @@ describe 'osl-rt::default' do
   default_attributes['osl-rt']['fqdn'] = 'request.osuosl.intnet'
   default_attributes['osl-rt']['default'] = 'support'
   default_attributes['osl-rt']['root-password'] = 'my-epic-rt'
+  default_attributes['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
 
-  # Postfix stubbing
+  # Stubbed commands
   before do
-    stub_command("/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix").and_return(true)
+    stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
   end
 
   # Recipes dependencies
@@ -91,13 +87,37 @@ describe 'osl-rt::default' do
     )
   }
 
+  # RT Database Initalization
+  it {
+    is_expected.to run_execute('init-db-rt').with(
+      creates: '/opt/rt/chef/init-db-rt',
+      sensitive: true,
+      command: <<-EOC
+    /opt/rt/sbin/rt-setup-database \
+      --action init \
+      --dba rt-user \
+      --dba-password rt-password \
+      --skip-create && \
+    touch /opt/rt/chef/init-db-rt
+      EOC
+    )
+  }
+
   # Set a new password for root
   it {
     is_expected.to run_execute('Set root password').with(
-      command: 'mysql -u rt-user -prt-password -e \'UPDATE Users SET Password=md5("my-epic-rt") WHERE Name="root";\' rt && touch /opt/rt/chef/init-root-passwd',
     creates: '/opt/rt/chef/init-root-passwd',
-    sensitive: true
-    )
+    sensitive: true,
+    command: <<-EOC
+    mysql -u rt-user \
+      -prt-password \
+      -e 'UPDATE Users \
+        SET Password=md5("my-epic-rt") \
+        WHERE Name="root";\' \
+      rt && \
+    touch /opt/rt/chef/init-root-passwd
+    EOC
+  )
   }
 
   # Apache Configuration Website
@@ -106,13 +126,82 @@ describe 'osl-rt::default' do
       directory: '/opt/rt/share/html',
       include_config: true,
       include_directory: 'rt',
-      include_name: 'rt',
-    )
-  }
-  it {
-    expect(chef_run.apache_app('request.osuosl.intnet')).to(
-      notify('apache2_service[osuosl]').to(:restart).immediately
+      include_name: 'rt'
     )
   }
 
+  # RT queue setup
+  it {
+    {
+      'Support': 'support',
+      'Frontend Team': 'frontend',
+      'Backend Team': 'backend',
+      'DevOps Team': 'devops',
+      'Marketing Team': 'advertising',
+      'The Board Of Directors': 'board',
+    }.each do |pt, email|
+      is_expected.to run_execute("Creating RT queue for #{pt}").with(
+        command: <<-EOC,
+/opt/rt/bin/rt create -t queue set \
+  name="#{pt}" correspondaddress="#{email}@request.osuosl.intnet" \
+  commentaddress="#{email}-comment@request.osuosl.intnet" \
+  && touch /tmp/#{email}done
+        EOC
+        creates: "/tmp/#{email}done"
+      )
+    end
+  }
+
+  # Nobody mail directory
+  it {
+    is_expected.to create_file('/var/spool/mail/nobody').with(
+      owner: 'nobody',
+      group: 'mail',
+      mode: '0660'
+    )
+  }
+
+  # Support mail account
+  it {
+    is_expected.to create_user('support').with(
+      manage_home: true
+    )
+  }
+
+  # Support Procmail setup
+  it {
+    is_expected.to create_template('/home/support/.procmailrc').with(
+      source: 'rt/support.procmailrc.erb',
+      cookbook: 'osl-rt',
+      owner: 'support',
+      group: 'support',
+      variables: {
+        rt_queues: {
+          'Support' => 'support',
+          'Frontend Team' => 'frontend',
+          'Backend Team' => 'backend',
+          'DevOps Team' => 'devops',
+          'Marketing Team' => 'advertising',
+          'The Board Of Directors' => 'board',
+        },
+        domain_name: 'request.osuosl.intnet',
+        error_email: 'almalinux',
+      }
+    )
+  }
+
+  # Default Procmail setup
+  it {
+    is_expected.to create_file('/etc/procmailrc').with(
+      content: "DEFAULT=$HOME/Mail/\nPATH=/usr/local/bin:/usr/bin:/bin\nMAILDIR=$HOME/Mail/\nLOGFILE=$MAILDIR/from"
+    )
+  }
+
+  # Global Mutt Configuration
+  it {
+    is_expected.to create_cookbook_file('/etc/Muttrc.local').with(
+      source: 'rt/Muttrc.local',
+      cookbook: 'osl-rt'
+    )
+  }
 end
