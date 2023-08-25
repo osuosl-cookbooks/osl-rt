@@ -43,7 +43,54 @@ config_options['$DatabaseName'] = node['osl-rt']['db']['name']
 config_options['$DatabaseUser'] = node['osl-rt']['db']['username']
 config_options['$DatabasePassword'] = node['osl-rt']['db']['password']
 config_options['_Plugins'] = node['osl-rt']['plugins']
-config_options['_Lifecycles'] = node['osl-rt']['lifecycles']
+config_options['_Lifecycles'] = {
+  'default' => {
+    'initial' => [ 'new' ],
+    'active' => [ 'open' ],
+    'inactive' => %w(stalled resolved rejected deleted),
+
+    'defaults' => {
+      'on_create' => 'new',
+      'on_merge' => 'resolved',
+      'approved' => 'open',
+      'denied' => 'rejected',
+    },
+
+    'transitions' => {
+      'new' => %w(open stalled resolved rejected deleted),
+      'open' => %w(new stalled resolved rejected deleted),
+      'stalled' => %w(new open rejected resolved deleted),
+      'resolved' => %w(new open stalled rejected deleted),
+      'rejected' => %w(new open stalled resolved deleted),
+      'deleted' => %w(new open stalled rejected resolved),
+    },
+
+    'rights' => {
+      '* -> deleted' => 'DeleteTicket',
+      '* -> *' => 'ModifyTicket',
+    },
+    'actions' => {
+      'new -> open' => {
+        'label' => 'Open It',
+        'update' => 'Respond',
+      },
+    },
+  },
+  'new-wave' => {
+    'initial' => [ 'order in' ],
+    'active' => [ 'order work' ],
+    'inactive' => [ 'order up' ],
+
+    'transitions' => {
+      'order in' => [ 'order work' ],
+      'order work' => [ 'order up' ],
+    },
+
+    'rights' => {
+      '* -> order in' => 'ResetOrder',
+    },
+  },
+}
 
 # Set up the queue emails
 rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['default'])
@@ -118,14 +165,16 @@ end
 apache_app node['osl-rt']['fqdn'] do
   directory '/opt/rt/share/html'
   include_config true
+  include_template true
   include_directory 'rt'
   include_name 'rt'
+  include_params('domain': node['osl-rt']['fqdn'])
 end
 
 # Forcefully reload Apache during the initial run, in order to allow for setting up the queues properly.
 service 'httpd' do
   action :reload
-  not_if File.exist?('/var/spool/mail/nobody')
+  not_if { ::File.exist?('/var/spool/mail/nobody') }
 end
 
 # Set up the queues in RT

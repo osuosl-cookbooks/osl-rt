@@ -125,8 +125,10 @@ describe 'osl-rt::default' do
     is_expected.to create_apache_app('request.osuosl.intnet').with(
       directory: '/opt/rt/share/html',
       include_config: true,
+      include_template: true,
       include_directory: 'rt',
-      include_name: 'rt'
+      include_name: 'rt',
+      include_params: { 'domain': 'request.osuosl.intnet' }
     )
   }
 

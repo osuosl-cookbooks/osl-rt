@@ -5,6 +5,7 @@ verifier:
 provisioner:
   name: chef_infra
   enforce_idempotency: true
+  log_level: 'info'
   multiple_converge: 2
   deprecations_as_errors: true
 

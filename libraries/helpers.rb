@@ -54,7 +54,7 @@ module OslRT
       def parse_lifecycle(hLifecycle)
         # Check to see if there is any configuration given
         unless hLifecycle.empty?
-          return '# The given variable was empty!'
+          return '# The given lifecycle variable was empty!\n'
         end
         # Add the Lifecycles option
         strConfig = 'Set(%Lifecycles,\n'
