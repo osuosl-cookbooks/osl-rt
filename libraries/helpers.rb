@@ -53,18 +53,18 @@ module OslRT
       # Returns a string
       def parse_lifecycle(hLifecycle)
         # Check to see if there is any configuration given
-        unless hLifecycle.empty?
+        if hLifecycle.empty?
           return '# The given lifecycle variable was empty!\n'
         end
         # Add the Lifecycles option
-        strConfig = 'Set(%Lifecycles,\n'
+        strConfig = "Set(%Lifecycles,\n"
         # The top-most hashtable pair contains different lifecycle options.
         hLifecycle.each do |lifecycle, options|
           strConfig += "\t'#{lifecycle}' => {\n"
           strConfig += parse_lifecycle_ht(options)
           strConfig += "\t},\n"
         end
-        strConfig += ');\n'
+        strConfig += ");\n"
         strConfig
       end
 
@@ -79,9 +79,9 @@ module OslRT
         hPair.each do |key, value|
           strConfig += "#{ind}'#{key}' => "
           strConfig += if value.is_a?(Hash)
-                         "{\n#{parse_lifecycle_ht(value, nIndent + 1)}},\n"
+                         "{\n#{parse_lifecycle_ht(value, nIndent + 1)}#{ind}},\n"
                        elsif value.is_a?(Array)
-                         "[\n#{parse_lifecycle_array(value, nIndent + 1)}],\n"
+                         "[\n#{parse_lifecycle_array(value, nIndent + 1)}#{ind}],\n"
                        else
                          "'#{value}',\n"
                        end
@@ -99,9 +99,9 @@ module OslRT
         # or going into another recursive function.
         arrItems.each do |item|
           strConfig += if item.is_a?(Hash)
-                         "{\n#{indChld}#{parse_lifecycle_ht(item, nIndent + 1)}},\n"
+                         "{\n#{indChld}#{parse_lifecycle_ht(item, nIndent + 1)}#{"\t" * nIndent}},\n"
                        elsif item.is_a?(Array)
-                         "[\n#{indChld}#{parse_lifecycle_array(item, nIndent + 1)}],\n"
+                         "[\n#{indChld}#{parse_lifecycle_array(item, nIndent + 1)}#{"\t" * nIndent}],\n"
                        else
                          "#{indChld}'#{item}',\n"
                        end
