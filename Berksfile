@@ -2,8 +2,7 @@ source 'https://supermarket.chef.io'
 
 solver :ruby, :required
 
-# cookbook 'osl-apache', git: 'git@github.com:osuosl-cookbooks/osl-apache'
-cookbook 'osl-apache', path: '../osl-apache'
+cookbook 'osl-apache', git: 'git@github.com:osuosl-cookbooks/osl-apache'
 cookbook 'osl-acme', git: 'git@github.com:osuosl-cookbooks/osl-acme'
 cookbook 'osl-firewall', git: 'git@github.com:osuosl-cookbooks/osl-firewall'
 cookbook 'osl-git', git: 'git@github.com:osuosl-cookbooks/osl-git'
