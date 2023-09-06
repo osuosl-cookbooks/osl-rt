@@ -28,10 +28,10 @@ end
   end
 end
 
-describe http('http://127.0.0.1', headers: { Host: 'request.osuosl.intnet' }, ssl_verify: false) do
+describe http('http://127.0.0.1', headers: { Host: 'example.org' }, ssl_verify: false) do
   its('status') { should cmp 200 }
-  its('headers.Set-Cookie') { should match /RT_SID_request.osuosl.intnet.80/ }
-  its('body') { should match /RT for request.osuosl.intnet/ }
+  its('headers.Set-Cookie') { should match /RT_SID_example.org.80/ }
+  its('body') { should match /RT for example.org/ }
   its('body') { should match /RT 4.4/ }
 end
 
@@ -39,7 +39,7 @@ describe file '/root/.rtrc' do
   its('owner') { should eq 'root' }
   its('group') { should eq 'root' }
   its('mode') { should cmp '0600' }
-  its('content') { should match %r{^server http://request.osuosl.intnet$} }
+  its('content') { should match %r{^server http://rtlocal$} }
   its('content') { should match /^user root$/ }
   its('content') { should match /^passwd my-epic-rt$/ }
 end
@@ -73,7 +73,7 @@ end
 
 describe postfix_conf('/etc/postfix/main.cf') do
   its('home_mailbox') { should eq 'Mail/' }
-  its('mydestination') { should eq '$myhostname, localhost.$mydomain, localhost, request.osuosl.intnet' }
+  its('mydestination') { should eq '$myhostname, localhost.$mydomain, localhost, example.org' }
   its('mailbox_command') { should eq '/usr/bin/procmail' }
   its('mailbox_size_limit') { should eq '0' }
   its('message_size_limit') { should eq '102400000' }
@@ -109,18 +109,18 @@ end
 describe file('/etc/postfix/transport') do
   it { should exist }
   [
-    'frontend-comment@request.osuosl.intnet local:$myhostname',
-    'frontend@request.osuosl.intnet local:$myhostname',
-    'backend-comment@request.osuosl.intnet local:$myhostname',
-    'backend@request.osuosl.intnet local:$myhostname',
-    'devops-comment@request.osuosl.intnet local:$myhostname',
-    'devops@request.osuosl.intnet local:$myhostname',
-    'advertising-comment@request.osuosl.intnet local:$myhostname',
-    'advertising@request.osuosl.intnet local:$myhostname',
-    'board-comment@request.osuosl.intnet local:$myhostname',
-    'board@request.osuosl.intnet local:$myhostname',
-    'support-comment@request.osuosl.intnet local:$myhostname',
-    'support@request.osuosl.intnet local:$myhostname',
+    'frontend-comment@example.org local:$myhostname',
+    'frontend@example.org local:$myhostname',
+    'backend-comment@example.org local:$myhostname',
+    'backend@example.org local:$myhostname',
+    'devops-comment@example.org local:$myhostname',
+    'devops@example.org local:$myhostname',
+    'advertising-comment@example.org local:$myhostname',
+    'advertising@example.org local:$myhostname',
+    'board-comment@example.org local:$myhostname',
+    'board@example.org local:$myhostname',
+    'support-comment@example.org local:$myhostname',
+    'support@example.org local:$myhostname',
   ].each do |line|
     its('content') { should match Regexp.escape line }
   end
@@ -130,15 +130,15 @@ describe command 'postfix check' do
   its('stderr') { should_not match /warning/ }
 end
 
-describe apache_conf('/etc/httpd/sites-enabled/request.osuosl.intnet.conf') do
-  its('ServerName') { should include 'request.osuosl.intnet' }
+describe apache_conf('/etc/httpd/sites-enabled/example.org.conf') do
+  its('ServerName') { should include 'example.org' }
   its('DocumentRoot') { should include '/opt/rt/share/html' }
   its('Include') { should include '/etc/httpd/sites-available/rt_include.conf' }
 end
 
 describe apache_conf('/etc/httpd/sites-available/rt_include.conf') do
   its('RewriteEngine') { should cmp 'On' }
-  its('RewriteRule') { should cmp '^/([0-9]+)$ https://request.osuosl.intnet/Ticket/Display.html?id=$1 [QSA,L]' }
+  its('RewriteRule') { should cmp '^/([0-9]+)$ https://example.org/Ticket/Display.html?id=$1 [QSA,L]' }
   its('AddDefaultCharset') { should cmp 'UTF-8' }
 end
 
@@ -165,7 +165,7 @@ describe file '/home/support/.procmailrc' do
   its('group') { should cmp 'support' }
 end
 
-describe command '/opt/rt/bin/rt ls -t queue -f Name' do
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' do
   its('exit_status') { should eq 0 }
   [
     'Frontend Team',
@@ -179,12 +179,12 @@ describe command '/opt/rt/bin/rt ls -t queue -f Name' do
   end
 end
 
-describe command '/opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue' do
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue' do
   its('exit_status') { should eq 0 }
   its('stdout') { should match /^1\s+Support\s+support-test\s+root@localhost$/ }
 end
 
-describe command "curl -sk -u 'root:my-epic-rt' http://request.osuosl.intnet/REST/2.0/ticket/1 | jq .Subject" do
+describe command "HOSTALIASES=/root/.rthost curl -sk -u 'root:my-epic-rt' http://rtlocal/REST/2.0/ticket/1 | jq .Subject" do
   its('exit_status') { should eq 0 }
   its('stdout') { should match /^"support-test"$/ }
 end

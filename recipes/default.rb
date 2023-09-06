@@ -17,6 +17,23 @@
 # limitations under the License.
 #
 
+node.default['osl-apache']['listen'] = %w(80 443)
+node.default['osl-apache']['worker_mem'] = 215
+
+node.default['osl-postfix']['main']['home_mailbox'] = 'Mail/'
+node.default['osl-postfix']['main']['mailbox_command'] = '/usr/bin/procmail'
+node.default['osl-postfix']['main']['mailbox_size_limit'] = '0'
+node.default['osl-postfix']['main']['message_size_limit'] = '102400000'
+node.default['osl-postfix']['main']['transport_maps'] = 'hash:/etc/postfix/transport'
+
+node.default['postfix']['access']['140.211.166.133'] = 'OK' # smtp2.osuosl.org
+node.default['postfix']['access']['140.211.166.136'] = 'OK' # smtp3.osuosl.org
+node.default['postfix']['access']['140.211.166.137'] = 'OK' # smtp4.osuosl.org
+node.default['postfix']['access']['140.211.166.138'] = 'OK' # smtp1.osuosl.org
+
+node.default['osl-rt']['lifecycles'] = {}
+node.default['osl-rt']['plugins'] = {}
+
 include_recipe 'osl-apache'
 include_recipe 'osl-apache::mod_ssl'
 include_recipe 'osl-apache::mod_perl'
@@ -26,48 +43,27 @@ include_recipe 'perl'
 
 package %w(request-tracker mutt procmail)
 
-# Get the config options, and overwrite the options given with other properties
-config_options = {}
-
-# Organization will be the Main domain name only, no sub-level domains.
-
-config_options['$rtname'] = node['osl-rt']['fqdn']
-config_options['$WebDomain'] = node['osl-rt']['fqdn']
-config_options['$Organization'] = node['osl-rt']['fqdn'][/([\w\-_]+\.+\w+$)/]
-config_options['$CorrespondAddress'] = "#{node['osl-rt']['default']}@#{config_options['$Organization']}"
-config_options['$CommentAddress'] = "#{node['osl-rt']['default']}-comment@#{config_options['$Organization']}"
-config_options['$DatabaseType'] = node['osl-rt']['db']['type']
-config_options['$DatabaseHost'] = node['osl-rt']['db']['host']
-config_options['$DatabaseRTHost'] = node['osl-rt']['db']['host']
-config_options['$DatabaseName'] = node['osl-rt']['db']['name']
-config_options['$DatabaseUser'] = node['osl-rt']['db']['username']
-config_options['$DatabasePassword'] = node['osl-rt']['db']['password']
-config_options['_Plugins'] = node['osl-rt']['plugins']
-config_options['_Lifecycles'] = node['osl-rt']['lifecycles']
-
-# Set up the queue emails
-rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['default'])
-
-config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{node['osl-rt']['fqdn']}))"
-
-# Set up the hostname as the website
-hostname node['hostname'] do
-  aliases ["#{node['osl-rt']['fqdn']}"]
-end
-
-# Parse the config hash to a string we can use as
-# the RT_SiteConfig.pm file.
-strConfigFile = parse_config(config_options)
-
 # Root Account
 template '/root/.rtrc' do
   source 'rt/rtrc.erb'
   cookbook 'osl-rt'
-  user 'root'
-  group 'root'
   mode '0600'
   sensitive true
-  variables(root_pass: node['osl-rt']['root-password'], domain: node['osl-rt']['fqdn'])
+  variables(root_pass: node['osl-rt']['root-password'])
+end
+
+# Set up user for mail
+user node['osl-rt']['default'] do
+  manage_home true
+end
+
+# User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail
+['root', "/home/#{node['osl-rt']['default']}"].each do |file_path|
+  file "/#{file_path}/.rthost" do
+    content <<~EOF
+      rtlocal localhost
+    EOF
+  end
 end
 
 # Add the RT command to the root user's PATH
@@ -77,8 +73,8 @@ end
 
 # RT Initial Configuration.
 file '/opt/rt/etc/RT_SiteConfig.pm' do
-  content strConfigFile
-  user 'root'
+  # Use the init function in order to generate the perl config file
+  content osl_rt_init_config
   group 'apache'
   mode '0640'
   sensitive true
@@ -87,27 +83,27 @@ end
 
 # Initalize the DB
 execute 'init-db-rt' do
-  command <<-EOH
+  command <<~EOH
     /opt/rt/sbin/rt-setup-database \
       --action init \
-      --dba #{config_options['$DatabaseUser']} \
-      --dba-password #{config_options['$DatabasePassword']} \
+      --dba #{node['osl-rt']['db']['username']} \
+      --dba-password #{node['osl-rt']['db']['password']} \
       --skip-create && \
     touch /opt/rt/chef/init-db-rt
   EOH
   creates '/opt/rt/chef/init-db-rt'
-  sensitive true
+  sensitive false
 end
 
 # Set a new password for root
 execute 'Set root password' do
-  command <<-EOH
-    mysql -u #{config_options['$DatabaseUser']} \
-      -p#{config_options['$DatabasePassword']} \
+  command <<~EOH
+    mysql -u #{node['osl-rt']['db']['username']} \
+      -p#{node['osl-rt']['db']['password']} \
       -e 'UPDATE Users \
         SET Password=md5(\"#{node['osl-rt']['root-password']}\") \
         WHERE Name=\"root\";' \
-      #{config_options['$DatabaseName']} && \
+      #{node['osl-rt']['db']['name']} && \
     touch /opt/rt/chef/init-root-passwd
   EOH
   creates '/opt/rt/chef/init-root-passwd'
@@ -122,9 +118,11 @@ apache_app node['osl-rt']['fqdn'] do
   include_directory 'rt'
   include_name 'rt'
   include_params('domain': node['osl-rt']['fqdn'])
+  server_aliases ['rtlocal']
 end
 
 # Forcefully reload Apache during the initial run, in order to allow for setting up the queues properly.
+# apache_app does not reload httpd after being ran, meaning the website is unavailable until after the converge has finished.
 service 'httpd' do
   action :reload
   not_if { ::File.exist?('/var/spool/mail/nobody') }
@@ -133,19 +131,15 @@ end
 # Set up the queues in RT
 node['osl-rt']['queues'].each do |pt, email|
   execute "Creating RT queue for #{pt}" do
-    command <<~EOL
+    command <<~EOC
+    HOSTALIASES=/root/.rthost \
     /opt/rt/bin/rt create -t queue set \
       name="#{pt}" correspondaddress="#{email}@#{node['osl-rt']['fqdn']}" \
       commentaddress="#{email}-comment@#{node['osl-rt']['fqdn']}" \
       && touch /tmp/#{email}done
-    EOL
+    EOC
     creates "/tmp/#{email}done"
   end
-end
-
-# Set up user for mail
-user node['osl-rt']['default'] do
-  manage_home true
 end
 
 # Nobody mail directory
@@ -163,7 +157,8 @@ template "/home/#{node['osl-rt']['default']}/.procmailrc" do
   group node['osl-rt']['default']
   variables(
     rt_queues: node['osl-rt']['queues'],
-    domain_name: node['osl-rt']['fqdn'],
+    fqdn: node['osl-rt']['fqdn'],
+    domain_name: 'rtlocal',
     error_email: node['platform']
   )
 end

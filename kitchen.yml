@@ -5,16 +5,14 @@ verifier:
 provisioner:
   name: chef_infra
   enforce_idempotency: true
-  log_level: 'info'
-  multiple_converge: 2
+  multiple_converge: 3
   deprecations_as_errors: true
+
+driver:
+  name: openstack
+  flavor_ref: 'm1.large'
 
 suites:
   - name: default
     run_list:
       - recipe[osl-rt-test::osl_request_tracker]
-    provisioner:
-      multiple_converge: 3
-    driver:
-      name: openstack
-      flavor_ref: 'm1.large'

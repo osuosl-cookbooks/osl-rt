@@ -15,7 +15,7 @@ default['osl-rt']['queues'].tap |q| do
   q['Backend Team'] = 'backend'
 end
 
-default['osl-rt']['fqdn'] = 'support.osuosl.intnet'
+default['osl-rt']['fqdn'] = 'example.org'
 ```
 
 ## Actions

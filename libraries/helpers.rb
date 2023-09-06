@@ -1,20 +1,44 @@
 module OslRT
   module Cookbook
     module Helpers
+      # Initalize the configuration options given the attributes
+      def osl_rt_init_config
+        config_options = {}
+        config_options['$rtname'] = node['osl-rt']['fqdn']
+        config_options['$WebDomain'] = node['osl-rt']['fqdn']
+        config_options['$Organization'] = node['osl-rt']['fqdn'][/([\w\-_]+\.+\w+$)/]
+        config_options['$CorrespondAddress'] = "#{node['osl-rt']['default']}@#{config_options['$Organization']}"
+        config_options['$CommentAddress'] = "#{node['osl-rt']['default']}-comment@#{config_options['$Organization']}"
+        config_options['$DatabaseType'] = node['osl-rt']['db']['type']
+        config_options['$DatabaseHost'] = node['osl-rt']['db']['host']
+        config_options['$DatabaseRTHost'] = node['osl-rt']['db']['host']
+        config_options['$DatabaseName'] = node['osl-rt']['db']['name']
+        config_options['$DatabaseUser'] = node['osl-rt']['db']['username']
+        config_options['$DatabasePassword'] = node['osl-rt']['db']['password']
+        config_options['_Plugins'] = node['osl-rt']['plugins']
+        config_options['_Lifecycles'] = node['osl-rt']['lifecycles']
+
+        # Set up the queue emails
+        rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['default'])
+
+        config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{node['osl-rt']['fqdn']}))"
+
+        # Since this is recipe-driven, go straight to parsing the config options, then return the final config file.
+        parse_config(config_options)
+      end
+
       # Take in a hashmap containing the properties we'd like to set
       # for the RT instance, and convert to the perl config standard
       # Returns a string
       def parse_config(hOptions)
         strConfig = ''
         hOptions.each do |key, value|
-          # If the key is _Plugins, this is a special case
-          if key == '_Plugins'
+          case key
+          when '_Plugins'
             # _Plugins contains an array of all plugins requested
             strConfig += parse_plugin(value)
             next
-          end
-          # If the key is _Lifecycles, this is a special case
-          if key == '_Lifecycles'
+          when '_Lifecycles'
             # _Lifecycles contains a recursive key-val/array pair for defining
             # the progress of a ticket
             strConfig += parse_lifecycle(value)
@@ -42,7 +66,7 @@ module OslRT
       # and return a string to append to the config file
       def parse_plugin(arrPlugins)
         strConfig = ''
-        arrPlugins.each do |plugin|
+        arrPlugins.sort.each do |plugin|
           strConfig += "Plugin('#{plugin}');\n"
         end
         strConfig
@@ -121,6 +145,8 @@ module OslRT
         end
         rt_emails.sort
       end
+
+      private :parse_config, :parse_plugin, :parse_lifecycle, :parse_lifecycle_ht, :parse_lifecycle_array, :init_emails
     end
   end
 end

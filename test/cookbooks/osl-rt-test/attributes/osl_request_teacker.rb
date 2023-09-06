@@ -14,7 +14,7 @@ default['osl-rt']['db'].tap do |db|
   db['password'] = 'rt-password'
 end
 
-default['osl-rt']['fqdn'] = 'request.osuosl.intnet'
+default['osl-rt']['fqdn'] = 'example.org'
 default['osl-rt']['default'] = 'support'
 default['osl-rt']['root-password'] = 'my-epic-rt'
 default['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)

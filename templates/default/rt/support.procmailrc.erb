@@ -2,6 +2,7 @@ DEFAULT=$HOME/Mail/
 PATH=/usr/local/bin:/usr/bin:/bin
 MAILDIR=$HOME/Mail/
 LOGFILE=$MAILDIR/from
+HOSTALIASES=$HOME/.rthost
 
 :0:
 * ^X-Spam-Status: Yes
@@ -13,11 +14,11 @@ LOGFILE=$MAILDIR/from
 
 <% @rt_queues.each do |queue, email| -%>
 :0:.rt-mailparse.lock
-* ^X-Original-To: <%= email %>@<%= @domain_name %>
+* ^X-Original-To: <%= email %>@<%= @fqdn %>
 | /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action correspond --url http://<%= @domain_name %>
 
 :0:.rt-mailparse.lock
-* ^X-Original-To: <%= email %>-comment@<%= @domain_name %>
+* ^X-Original-To: <%= email %>-comment@<%= @fqdn %>
 | /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action comment --url http://<%= @domain_name %>
 <% end -%>
 
