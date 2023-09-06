@@ -40,7 +40,7 @@ describe 'osl-rt::default' do
     db['password'] = 'rt-password'
   end
 
-  default_attributes['osl-rt']['fqdn'] = 'request.osuosl.intnet'
+  default_attributes['osl-rt']['fqdn'] = 'example.org'
   default_attributes['osl-rt']['default'] = 'support'
   default_attributes['osl-rt']['root-password'] = 'my-epic-rt'
   default_attributes['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
@@ -75,7 +75,7 @@ describe 'osl-rt::default' do
       source: 'rt/rtrc.erb',
       cookbook: 'osl-rt',
       mode: '0600',
-      variables: { root_pass: 'my-epic-rt', domain: 'request.osuosl.intnet' },
+      variables: { root_pass: 'my-epic-rt' },
       sensitive: true
     )
   }
@@ -122,13 +122,14 @@ describe 'osl-rt::default' do
 
   # Apache Configuration Website
   it {
-    is_expected.to create_apache_app('request.osuosl.intnet').with(
+    is_expected.to create_apache_app('example.org').with(
       directory: '/opt/rt/share/html',
       include_config: true,
       include_template: true,
       include_directory: 'rt',
       include_name: 'rt',
-      include_params: { 'domain': 'request.osuosl.intnet' }
+      include_params: { 'domain': 'example.org' },
+      server_aliases: ['rtlocal']
     )
   }
 
@@ -144,10 +145,11 @@ describe 'osl-rt::default' do
     }.each do |pt, email|
       is_expected.to run_execute("Creating RT queue for #{pt}").with(
         command: <<-EOC,
-/opt/rt/bin/rt create -t queue set \
-  name="#{pt}" correspondaddress="#{email}@request.osuosl.intnet" \
-  commentaddress="#{email}-comment@request.osuosl.intnet" \
-  && touch /tmp/#{email}done
+    HOSTALIASES=/root/.rthost \
+    /opt/rt/bin/rt create -t queue set \
+      name="#{pt}" correspondaddress="#{email}@example.org" \
+      commentaddress="#{email}-comment@example.org" \
+      && touch /tmp/#{email}done
         EOC
         creates: "/tmp/#{email}done"
       )
@@ -186,7 +188,8 @@ describe 'osl-rt::default' do
           'Marketing Team' => 'advertising',
           'The Board Of Directors' => 'board',
         },
-        domain_name: 'request.osuosl.intnet',
+        domain_name: 'rtlocal',
+        'fqdn': 'example.org',
         error_email: 'almalinux',
       }
     )

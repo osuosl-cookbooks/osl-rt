@@ -83,21 +83,21 @@ end
 
 # Initalize the DB
 execute 'init-db-rt' do
-  command <<~EOH
+  command <<-EOC
     /opt/rt/sbin/rt-setup-database \
       --action init \
       --dba #{node['osl-rt']['db']['username']} \
       --dba-password #{node['osl-rt']['db']['password']} \
       --skip-create && \
     touch /opt/rt/chef/init-db-rt
-  EOH
+  EOC
   creates '/opt/rt/chef/init-db-rt'
-  sensitive false
+  sensitive true
 end
 
 # Set a new password for root
 execute 'Set root password' do
-  command <<~EOH
+  command <<-EOC
     mysql -u #{node['osl-rt']['db']['username']} \
       -p#{node['osl-rt']['db']['password']} \
       -e 'UPDATE Users \
@@ -105,7 +105,7 @@ execute 'Set root password' do
         WHERE Name=\"root\";' \
       #{node['osl-rt']['db']['name']} && \
     touch /opt/rt/chef/init-root-passwd
-  EOH
+  EOC
   creates '/opt/rt/chef/init-root-passwd'
   sensitive true
 end
@@ -131,7 +131,7 @@ end
 # Set up the queues in RT
 node['osl-rt']['queues'].each do |pt, email|
   execute "Creating RT queue for #{pt}" do
-    command <<~EOC
+    command <<-EOC
     HOSTALIASES=/root/.rthost \
     /opt/rt/bin/rt create -t queue set \
       name="#{pt}" correspondaddress="#{email}@#{node['osl-rt']['fqdn']}" \
