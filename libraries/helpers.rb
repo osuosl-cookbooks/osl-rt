@@ -15,8 +15,8 @@ module OslRT
         config_options['$DatabaseName'] = node['osl-rt']['db']['name']
         config_options['$DatabaseUser'] = node['osl-rt']['db']['username']
         config_options['$DatabasePassword'] = node['osl-rt']['db']['password']
-        config_options['_Plugins'] = node['osl-rt']['plugins']
-        config_options['_Lifecycles'] = node['osl-rt']['lifecycles']
+        config_options['_Plugins'] = node['osl-rt']['plugins'] if node['osl-rt']['plugins']
+        config_options['_Lifecycles'] = node['osl-rt']['lifecycles'] if node['osl-rt']['lifecycles']
 
         # Set up the queue emails
         rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['default'])
@@ -26,6 +26,8 @@ module OslRT
         # Since this is recipe-driven, go straight to parsing the config options, then return the final config file.
         parse_config(config_options)
       end
+
+      private
 
       # Take in a hashmap containing the properties we'd like to set
       # for the RT instance, and convert to the perl config standard
@@ -145,8 +147,6 @@ module OslRT
         end
         rt_emails.sort
       end
-
-      private :parse_config, :parse_plugin, :parse_lifecycle, :parse_lifecycle_ht, :parse_lifecycle_array, :init_emails
     end
   end
 end
