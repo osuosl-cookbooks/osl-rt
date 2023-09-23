@@ -10,6 +10,7 @@ Name             | Types  | Description                                         
 `fqdn`           | String | The FQDN of the site and email                               | yes
 `data-bag`       | Array [String, String]  | A two string array containing the `bag name` and `item name` of a data bag | yes
 `user`           | String | The user account that is responsible for being the default email | no
+`internal-domain`| String | A workaround required needs a non-sublevel domain name to access the site internally | no
 `db.type`        | String | The database type, MySQL or Postgres                         | no
 `db.host`        | String | The hostname of the DB server                                | yes
 `db.name`        | String | The DB name on the DB server                                 | yes

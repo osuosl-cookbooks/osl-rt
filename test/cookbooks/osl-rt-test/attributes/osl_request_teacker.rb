@@ -11,9 +11,8 @@ default['osl-rt']['db'].tap do |db|
   db['name'] = 'rt'
 end
 
-default['osl-rt']['data-bag'] = ['osl-rt', 'test']
+default['osl-rt']['data-bag'] = %w(osl-rt test)
 default['osl-rt']['fqdn'] = 'example.org'
-default['osl-rt']['internal-domain'] = 'rtlocal'
 default['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
 default['osl-rt']['lifecycles'] = {
   'default' => {

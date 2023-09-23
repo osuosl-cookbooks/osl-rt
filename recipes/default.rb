@@ -31,7 +31,6 @@ node.default['postfix']['access']['140.211.166.136'] = 'OK' # smtp3.osuosl.org
 node.default['postfix']['access']['140.211.166.137'] = 'OK' # smtp4.osuosl.org
 node.default['postfix']['access']['140.211.166.138'] = 'OK' # smtp1.osuosl.org
 
-
 include_recipe 'osl-apache'
 include_recipe 'osl-apache::mod_ssl'
 include_recipe 'osl-apache::mod_perl'

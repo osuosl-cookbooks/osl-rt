@@ -44,8 +44,9 @@ describe 'osl-rt::default' do
   default_attributes['osl-rt']['user'] = 'support'
   default_attributes['osl-rt']['root-password'] = 'my-epic-rt'
   default_attributes['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
+  default_attributes['osl-rt']['internal-domain'] = 'rtlocal'
 
-  default_attributes['osl-rt']['data-bag'] = ['osl-rt', 'test']
+  default_attributes['osl-rt']['data-bag'] = %w(osl-rt test)
 
   # Stubbed commands
   before do
@@ -80,7 +81,6 @@ describe 'osl-rt::default' do
   it {
     is_expected.to create_template('/root/.rtrc').with(
       source: 'rt/rtrc.erb',
-      cookbook: 'osl-rt',
       mode: '0600',
       variables: { root_pass: 'my-epic-rt' },
       sensitive: true
