@@ -31,6 +31,7 @@ node.default['postfix']['access']['140.211.166.136'] = 'OK' # smtp3.osuosl.org
 node.default['postfix']['access']['140.211.166.137'] = 'OK' # smtp4.osuosl.org
 node.default['postfix']['access']['140.211.166.138'] = 'OK' # smtp1.osuosl.org
 
+
 include_recipe 'osl-apache'
 include_recipe 'osl-apache::mod_ssl'
 include_recipe 'osl-apache::mod_perl'
@@ -40,25 +41,29 @@ include_recipe 'perl'
 
 package %w(request-tracker mutt procmail)
 
+rt_secrets = data_bag_item(*node['osl-rt']['data-bag'])
+
 # Root Account
 template '/root/.rtrc' do
   source 'rt/rtrc.erb'
-  cookbook 'osl-rt'
   mode '0600'
   sensitive true
-  variables(root_pass: node['osl-rt']['root-password'])
+  variables(root_pass: rt_secrets['root-password'])
 end
 
 # Set up user for mail
-user node['osl-rt']['default'] do
+user node['osl-rt']['user'] do
   manage_home true
 end
 
 # User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail
-['root', "/home/#{node['osl-rt']['default']}"].each do |file_path|
+[
+  'root',
+  "/home/#{node['osl-rt']['user']}",
+].each do |file_path|
   file "/#{file_path}/.rthost" do
     content <<~EOF
-      rtlocal localhost
+      #{node['osl-rt']['internal-domain']} localhost
     EOF
   end
 end
@@ -80,11 +85,11 @@ end
 
 # Initalize the DB
 execute 'init-db-rt' do
-  command <<-EOC
+  command <<~EOC
     /opt/rt/sbin/rt-setup-database \
       --action init \
-      --dba #{node['osl-rt']['db']['username']} \
-      --dba-password #{node['osl-rt']['db']['password']} \
+      --dba #{rt_secrets['db-username']} \
+      --dba-password #{rt_secrets['db-password']} \
       --skip-create && \
     touch /opt/rt/chef/init-db-rt
   EOC
@@ -94,11 +99,11 @@ end
 
 # Set a new password for root
 execute 'Set root password' do
-  command <<-EOC
-    mysql -u #{node['osl-rt']['db']['username']} \
-      -p#{node['osl-rt']['db']['password']} \
+  command <<~EOC
+    mysql -u #{rt_secrets['db-username']} \
+      -p#{rt_secrets['db-password']} \
       -e 'UPDATE Users \
-        SET Password=md5(\"#{node['osl-rt']['root-password']}\") \
+        SET Password=md5(\"#{rt_secrets['root-password']}\") \
         WHERE Name=\"root\";' \
       #{node['osl-rt']['db']['name']} && \
     touch /opt/rt/chef/init-root-passwd
@@ -115,20 +120,20 @@ apache_app node['osl-rt']['fqdn'] do
   include_directory 'rt'
   include_name 'rt'
   include_params('domain': node['osl-rt']['fqdn'])
-  server_aliases ['rtlocal']
+  server_aliases [node['osl-rt']['internal-domain']]
 end
 
 # Forcefully reload Apache during the initial run, in order to allow for setting up the queues properly.
 # apache_app does not reload httpd after being ran, meaning the website is unavailable until after the converge has finished.
 service 'httpd' do
   action :reload
-  not_if { ::File.exist?('/var/spool/mail/nobody') }
+  not_if { ::File.exist?('/etc/procmailrc') }
 end
 
 # Set up the queues in RT
 node['osl-rt']['queues'].each do |pt, email|
   execute "Creating RT queue for #{pt}" do
-    command <<-EOC
+    command <<~EOC
     HOSTALIASES=/root/.rthost \
     /opt/rt/bin/rt create -t queue set \
       name="#{pt}" correspondaddress="#{email}@#{node['osl-rt']['fqdn']}" \
@@ -139,23 +144,16 @@ node['osl-rt']['queues'].each do |pt, email|
   end
 end
 
-# Nobody mail directory
-file '/var/spool/mail/nobody' do
-  owner 'nobody'
-  group 'mail'
-  mode '0660'
-end
-
 # Set up the procmail
-template "/home/#{node['osl-rt']['default']}/.procmailrc" do
+template "/home/#{node['osl-rt']['user']}/.procmailrc" do
   source 'rt/support.procmailrc.erb'
   cookbook 'osl-rt'
-  owner node['osl-rt']['default']
-  group node['osl-rt']['default']
+  owner node['osl-rt']['user']
+  group node['osl-rt']['user']
   variables(
     rt_queues: node['osl-rt']['queues'],
     fqdn: node['osl-rt']['fqdn'],
-    domain_name: 'rtlocal',
+    domain_name: node['osl-rt']['internal-domain'],
     error_email: node['platform']
   )
 end

@@ -3,23 +3,25 @@ module OslRT
     module Helpers
       # Initalize the configuration options given the attributes
       def osl_rt_init_config
+        rt_secrets = data_bag_item(*node['osl-rt']['data-bag'])
+
         config_options = {}
         config_options['$rtname'] = node['osl-rt']['fqdn']
         config_options['$WebDomain'] = node['osl-rt']['fqdn']
         config_options['$Organization'] = node['osl-rt']['fqdn'][/([\w\-_]+\.+\w+$)/]
-        config_options['$CorrespondAddress'] = "#{node['osl-rt']['default']}@#{config_options['$Organization']}"
+        config_options['$CorrespondAddress'] = "#{node['osl-rt']['user']}@#{config_options['$Organization']}"
         config_options['$CommentAddress'] = "#{node['osl-rt']['default']}-comment@#{config_options['$Organization']}"
         config_options['$DatabaseType'] = node['osl-rt']['db']['type']
         config_options['$DatabaseHost'] = node['osl-rt']['db']['host']
         config_options['$DatabaseRTHost'] = node['osl-rt']['db']['host']
         config_options['$DatabaseName'] = node['osl-rt']['db']['name']
-        config_options['$DatabaseUser'] = node['osl-rt']['db']['username']
-        config_options['$DatabasePassword'] = node['osl-rt']['db']['password']
+        config_options['$DatabaseUser'] = rt_secrets['db-username']
+        config_options['$DatabasePassword'] = rt_secrets['db-password']
         config_options['_Plugins'] = node['osl-rt']['plugins'] if node['osl-rt']['plugins']
         config_options['_Lifecycles'] = node['osl-rt']['lifecycles'] if node['osl-rt']['lifecycles']
 
         # Set up the queue emails
-        rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['default'])
+        rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['user'])
 
         config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{node['osl-rt']['fqdn']}))"
 

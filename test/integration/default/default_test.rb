@@ -109,18 +109,18 @@ end
 describe file('/etc/postfix/transport') do
   it { should exist }
   [
-    'frontend-comment@example.org local:$myhostname',
-    'frontend@example.org local:$myhostname',
-    'backend-comment@example.org local:$myhostname',
-    'backend@example.org local:$myhostname',
-    'devops-comment@example.org local:$myhostname',
-    'devops@example.org local:$myhostname',
-    'advertising-comment@example.org local:$myhostname',
     'advertising@example.org local:$myhostname',
-    'board-comment@example.org local:$myhostname',
+    'advertising-comment@example.org local:$myhostname',
+    'backend@example.org local:$myhostname',
+    'backend-comment@example.org local:$myhostname',
     'board@example.org local:$myhostname',
-    'support-comment@example.org local:$myhostname',
+    'board-comment@example.org local:$myhostname',
+    'devops@example.org local:$myhostname',
+    'devops-comment@example.org local:$myhostname',
+    'frontend@example.org local:$myhostname',
+    'frontend-comment@example.org local:$myhostname',
     'support@example.org local:$myhostname',
+    'support-comment@example.org local:$myhostname',
   ].each do |line|
     its('content') { should match Regexp.escape line }
   end

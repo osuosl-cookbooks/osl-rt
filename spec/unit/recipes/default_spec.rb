@@ -41,13 +41,20 @@ describe 'osl-rt::default' do
   end
 
   default_attributes['osl-rt']['fqdn'] = 'example.org'
-  default_attributes['osl-rt']['default'] = 'support'
+  default_attributes['osl-rt']['user'] = 'support'
   default_attributes['osl-rt']['root-password'] = 'my-epic-rt'
   default_attributes['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
+
+  default_attributes['osl-rt']['data-bag'] = ['osl-rt', 'test']
 
   # Stubbed commands
   before do
     stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+    stub_data_bag_item('osl-rt', 'test').and_return({
+      'db-username': 'rt-user',
+      'db-password': 'rt-password',
+      'root-password': 'my-epic-rt',
+    })
   end
 
   # Recipes dependencies
@@ -92,7 +99,7 @@ describe 'osl-rt::default' do
     is_expected.to run_execute('init-db-rt').with(
       creates: '/opt/rt/chef/init-db-rt',
       sensitive: true,
-      command: <<-EOC
+      command: <<~EOC
     /opt/rt/sbin/rt-setup-database \
       --action init \
       --dba rt-user \
@@ -108,7 +115,7 @@ describe 'osl-rt::default' do
     is_expected.to run_execute('Set root password').with(
     creates: '/opt/rt/chef/init-root-passwd',
     sensitive: true,
-    command: <<-EOC
+    command: <<~EOC
     mysql -u rt-user \
       -prt-password \
       -e 'UPDATE Users \
@@ -144,7 +151,7 @@ describe 'osl-rt::default' do
       'The Board Of Directors': 'board',
     }.each do |pt, email|
       is_expected.to run_execute("Creating RT queue for #{pt}").with(
-        command: <<-EOC,
+        command: <<~EOC,
     HOSTALIASES=/root/.rthost \
     /opt/rt/bin/rt create -t queue set \
       name="#{pt}" correspondaddress="#{email}@example.org" \
@@ -154,15 +161,6 @@ describe 'osl-rt::default' do
         creates: "/tmp/#{email}done"
       )
     end
-  }
-
-  # Nobody mail directory
-  it {
-    is_expected.to create_file('/var/spool/mail/nobody').with(
-      owner: 'nobody',
-      group: 'mail',
-      mode: '0660'
-    )
   }
 
   # Support mail account

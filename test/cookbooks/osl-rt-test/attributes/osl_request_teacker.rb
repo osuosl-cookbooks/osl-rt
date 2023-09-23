@@ -7,16 +7,13 @@ default['osl-rt']['queues'].tap do |q|
   q['The Board Of Directors'] = 'board'
 end
 default['osl-rt']['db'].tap do |db|
-  db['type'] = 'mysql'
   db['host'] = 'localhost'
   db['name'] = 'rt'
-  db['username'] = 'rt-user'
-  db['password'] = 'rt-password'
 end
 
+default['osl-rt']['data-bag'] = ['osl-rt', 'test']
 default['osl-rt']['fqdn'] = 'example.org'
-default['osl-rt']['default'] = 'support'
-default['osl-rt']['root-password'] = 'my-epic-rt'
+default['osl-rt']['internal-domain'] = 'rtlocal'
 default['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
 default['osl-rt']['lifecycles'] = {
   'default' => {

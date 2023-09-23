@@ -7,6 +7,7 @@ provisioner:
   enforce_idempotency: true
   multiple_converge: 3
   deprecations_as_errors: true
+  data_bags_path: test/integration/data_bags
 
 driver:
   name: openstack
@@ -16,3 +17,6 @@ suites:
   - name: default
     run_list:
       - recipe[osl-rt-test::osl_request_tracker]
+    attributes: {'osl-rt': {
+      'data-bag': ['osl-rt', 'test']
+    }}

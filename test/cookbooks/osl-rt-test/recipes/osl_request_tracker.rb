@@ -3,16 +3,15 @@ package %w(mailx jq)
 
 # Database
 osl_mysql_test 'rt' do
-  username node['osl-rt']['db']['username']
-  password node['osl-rt']['db']['password']
+  username 'rt-user'
+  password 'rt-password'
 end
 
 # Request Tracker
 include_recipe 'osl-rt'
 
 # Wait a bit so the RT instance could start back up
-chef_sleep 'Wait a bit' do
-  seconds 5
+chef_sleep '5' do
   not_if { ::File.exist?('/root/first_run_done') }
 end
 
