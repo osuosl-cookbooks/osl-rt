@@ -17,6 +17,3 @@ suites:
   - name: default
     run_list:
       - recipe[osl-rt-test::osl_request_tracker]
-    attributes: {'osl-rt': {
-      'data-bag': ['osl-rt', 'test']
-    }}

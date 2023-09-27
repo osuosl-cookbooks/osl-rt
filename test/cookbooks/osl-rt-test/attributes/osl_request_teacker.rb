@@ -6,13 +6,7 @@ default['osl-rt']['queues'].tap do |q|
   q['Marketing Team'] = 'advertising'
   q['The Board Of Directors'] = 'board'
 end
-default['osl-rt']['db'].tap do |db|
-  db['host'] = 'localhost'
-  db['name'] = 'rt'
-end
 
-default['osl-rt']['data-bag'] = %w(osl-rt test)
-default['osl-rt']['fqdn'] = 'example.org'
 default['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
 default['osl-rt']['lifecycles'] = {
   'default' => {

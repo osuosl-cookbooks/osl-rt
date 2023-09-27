@@ -40,7 +40,7 @@ include_recipe 'perl'
 
 package %w(request-tracker mutt procmail)
 
-rt_secrets = data_bag_item(*node['osl-rt']['data-bag'])
+rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
 
 # Root Account
 template '/root/.rtrc' do

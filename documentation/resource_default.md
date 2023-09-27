@@ -8,7 +8,7 @@ Configures and initializes a Request Tracker website
 Name             | Types  | Description                                                  | Required?
 -----------------|--------|--------------------------------------------------------------|----------
 `fqdn`           | String | The FQDN of the site and email                               | yes
-`data-bag`       | Array [String, String]  | A two string array containing the `bag name` and `item name` of a data bag | yes
+`data-bag`       | String | The name of the databag item. The data bag is always `request-tracker` | yes
 `user`           | String | The user account that is responsible for being the default email | no
 `internal-domain`| String | A workaround required needs a non-sublevel domain name to access the site internally | no
 `db.type`        | String | The database type, MySQL or Postgres                         | no

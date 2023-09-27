@@ -46,12 +46,12 @@ describe 'osl-rt::default' do
   default_attributes['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
   default_attributes['osl-rt']['internal-domain'] = 'rtlocal'
 
-  default_attributes['osl-rt']['data-bag'] = %w(osl-rt test)
+  default_attributes['osl-rt']['data-bag'] = 'default'
 
   # Stubbed commands
   before do
     stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-    stub_data_bag_item('osl-rt', 'test').and_return({
+    stub_data_bag_item('request-tracker', 'default').and_return({
       'db-username': 'rt-user',
       'db-password': 'rt-password',
       'root-password': 'my-epic-rt',

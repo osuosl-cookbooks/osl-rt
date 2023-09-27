@@ -3,7 +3,7 @@ module OslRT
     module Helpers
       # Initalize the configuration options given the attributes
       def osl_rt_init_config
-        rt_secrets = data_bag_item(*node['osl-rt']['data-bag'])
+        rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
 
         config_options = {}
         config_options['$rtname'] = node['osl-rt']['fqdn']
