@@ -82,7 +82,7 @@ describe 'osl-rt::default' do
     is_expected.to create_template('/root/.rtrc').with(
       source: 'rtrc.erb',
       mode: '0600',
-      variables: { root_pass: 'my-epic-rt', domain: "rtlocal" },
+      variables: { root_pass: 'my-epic-rt', domain: 'rtlocal' },
       sensitive: true
     )
   end
