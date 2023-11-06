@@ -69,33 +69,33 @@ describe 'osl-rt::default' do
   end
 
   # RT Site Config
-  it {
+  it do
     is_expected.to create_file('/opt/rt/etc/RT_SiteConfig.pm').with(
       group: 'apache',
       mode: '0640',
       sensitive: true
     )
-  }
+  end
 
   # Root Account Config
-  it {
+  it do
     is_expected.to create_template('/root/.rtrc').with(
-      source: 'rt/rtrc.erb',
+      source: 'rtrc.erb',
       mode: '0600',
-      variables: { root_pass: 'my-epic-rt' },
+      variables: { root_pass: 'my-epic-rt', domain: "rtlocal" },
       sensitive: true
     )
-  }
+  end
 
   # Add RT to sbin PATH
-  it {
+  it do
     is_expected.to create_link('/usr/local/sbin/rt').with(
       to: '/opt/rt/bin/rt'
     )
-  }
+  end
 
   # RT Database Initalization
-  it {
+  it do
     is_expected.to run_execute('init-db-rt').with(
       creates: '/opt/rt/chef/init-db-rt',
       sensitive: true,
@@ -108,10 +108,10 @@ describe 'osl-rt::default' do
     touch /opt/rt/chef/init-db-rt
       EOC
     )
-  }
+  end
 
   # Set a new password for root
-  it {
+  it do
     is_expected.to run_execute('Set root password').with(
     creates: '/opt/rt/chef/init-root-passwd',
     sensitive: true,
@@ -125,23 +125,22 @@ describe 'osl-rt::default' do
     touch /opt/rt/chef/init-root-passwd
     EOC
   )
-  }
+  end
 
   # Apache Configuration Website
-  it {
+  it do
     is_expected.to create_apache_app('example.org').with(
       directory: '/opt/rt/share/html',
       include_config: true,
       include_template: true,
-      include_directory: 'rt',
       include_name: 'rt',
       include_params: { 'domain': 'example.org' },
       server_aliases: ['rtlocal']
     )
-  }
+  end
 
   # RT queue setup
-  it {
+  it do
     {
       'Support': 'support',
       'Frontend Team': 'frontend',
@@ -161,19 +160,19 @@ describe 'osl-rt::default' do
         creates: "/tmp/#{email}done"
       )
     end
-  }
+  end
 
   # Support mail account
-  it {
+  it do
     is_expected.to create_user('support').with(
       manage_home: true
     )
-  }
+  end
 
   # Support Procmail setup
-  it {
+  it do
     is_expected.to create_template('/home/support/.procmailrc').with(
-      source: 'rt/support.procmailrc.erb',
+      source: 'support.procmailrc.erb',
       cookbook: 'osl-rt',
       owner: 'support',
       group: 'support',
@@ -185,26 +184,27 @@ describe 'osl-rt::default' do
           'DevOps Team' => 'devops',
           'Marketing Team' => 'advertising',
           'The Board Of Directors' => 'board',
+          'Support Example' => nil,
         },
         domain_name: 'rtlocal',
         'fqdn': 'example.org',
         error_email: 'almalinux',
       }
     )
-  }
+  end
 
   # Default Procmail setup
-  it {
+  it do
     is_expected.to create_file('/etc/procmailrc').with(
       content: "DEFAULT=$HOME/Mail/\nPATH=/usr/local/bin:/usr/bin:/bin\nMAILDIR=$HOME/Mail/\nLOGFILE=$MAILDIR/from"
     )
-  }
+  end
 
   # Global Mutt Configuration
-  it {
+  it do
     is_expected.to create_cookbook_file('/etc/Muttrc.local').with(
       source: 'rt/Muttrc.local',
       cookbook: 'osl-rt'
     )
-  }
+  end
 end

@@ -4,15 +4,86 @@
 
 ### Platforms
 
-- CentOS 7+
+- Almalinux 8+
 
 ### Cookbooks
 
 ## Attributes
 
+Name             | Type   | Description                                                  | Default
+-----------------|--------|--------------------------------------------------------------|----------
+`fqdn`           | String | The FQDN of the site and email                               | `example.org`
+`data-bag`       | String | The name of the databag item. The data bag is always `request-tracker` | `default`
+`user`           | String | The user account that is responsible for being the default email | `support`
+`internal-domain`| String | A workaround required needs a non-sublevel domain name to access the site internally | `rtlocal`
+`db.type`        | String | The database type, MySQL or Postgres                         | `mysql`
+`db.host`        | String | The hostname of the DB server                                | `localhost`
+`db.name`        | String | The DB name on the DB server                                 | `rt`
+`queues`         | Hash   | The queues and emails available for RT. The key is the pretty print, and the value is a email-valid name. | `{'Support Example': nil}` Any nil-valued key will be ignored.
+`plugins`        | Array  | A list of [plugins](https://rt-wiki.bestpractical.com/wiki/Extensions) to add to the RT site | `[]`
+`lifecycles`     | Hash   | `WARNING: Default set to a custom lifecycle, explicitly set this to nil for actual default.` Any [custom lifecycles](https://docs.bestpractical.com/rt/4.4.1/customizing/lifecycles.html) to make available in RT | A custom example of a default lifecycle.
+
+### Example Attributes
+
+```rb
+# Create three different Queues. The keys are the "pretty print" name, while the values are the email name.
+default['osl-rt']['queues'].tap do |q|
+  q['Support'] = 'support'
+  q['Frontend Team'] = 'frontend'
+  q['Backend Team'] = 'backend'
+end
+
+# Set up the Database connection
+default['osl-rt']['db'].tap do |db|
+  db['type'] = 'mysql'
+  db['host'] = 'localhost'
+  db['name'] = 'rt'
+end
+
+# Configure the domain name that the website and email reciever/sender will be from
+default['osl-rt']['fqdn'] = 'subdomain.example.com'
+
+# Set the name of the user who will be managing the RT emails recieved
+default['osl-rt']['user'] = 'support'
+
+# Add on any extra plugins to the RT site, as an array
+default['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
+
+# Create a custom lifecycle to use, leaving this blank will only supply the stock lifecycle
+default['osl-rt']['lifecycles'] = {
+  'new-wave' => {
+    'initial' => [ 'order in' ],
+    'active' => [ 'order work', 'order delayed' ],
+    'inactive' => [ 'order up' ],
+
+    'transitions' => {
+      '' => [ 'order in' ],
+      'order in' => [ 'order work' ],
+      'order work' => [ 'order delayed', 'order up' ],
+      'order delayed' => [ 'order work' ],
+    },
+
+    'rights' => {
+      '* => order in' => 'ResetOrder',
+    }
+  }
+}
+`
+
+## Data Bag Attributes
+
+Name            | Types  | Description
+----------------|--------|------------
+`db-username`   | String | The username of the DB user
+`db-password`   | String | The password of the DB user
+`root-password` | String | The password used for the root account on RT
+
 ## Resources
 
 ## Recipes
+
+### osl-rt::default
+Deploys an RT web service on the given system, using the provided attributes
 
 ## Contributing
 

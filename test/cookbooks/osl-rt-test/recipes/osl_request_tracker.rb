@@ -10,8 +10,9 @@ end
 # Request Tracker
 include_recipe 'osl-rt'
 
-# Wait a bit so the RT instance could start back up
-chef_sleep '5' do
+# Restart Apache
+service 'httpd' do
+  action :restart
   not_if { ::File.exist?('/root/first_run_done') }
 end
 

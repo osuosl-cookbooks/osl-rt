@@ -141,6 +141,7 @@ module OslRT
       def init_emails(queues, strdomain, strdefault)
         rt_emails = []
         queues.each do |_, email|
+          next if email.nil?
           node.force_override['postfix']['aliases'][email] = strdefault
           node.force_override['postfix']['aliases']["#{email}-comment"] = strdefault
           node.force_override['postfix']['transports']["#{email}@#{strdomain}"] = 'local:$myhostname'

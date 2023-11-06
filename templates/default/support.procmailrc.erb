@@ -13,6 +13,7 @@ HOSTALIASES=$HOME/.rthost
 /dev/null
 
 <% @rt_queues.each do |queue, email| -%>
+<%- next if !email -%>
 :0:.rt-mailparse.lock
 * ^X-Original-To: <%= email %>@<%= @fqdn %>
 | /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action correspond --url http://<%= @domain_name %>

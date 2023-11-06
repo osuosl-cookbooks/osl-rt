@@ -44,10 +44,13 @@ rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
 
 # Root Account
 template '/root/.rtrc' do
-  source 'rt/rtrc.erb'
+  source 'rtrc.erb'
   mode '0600'
   sensitive true
-  variables(root_pass: rt_secrets['root-password'])
+  variables(
+    root_pass: rt_secrets['root-password'],
+    domain: node['osl-rt']['internal-domain']
+  )
 end
 
 # Set up user for mail
@@ -116,7 +119,6 @@ apache_app node['osl-rt']['fqdn'] do
   directory '/opt/rt/share/html'
   include_config true
   include_template true
-  include_directory 'rt'
   include_name 'rt'
   include_params('domain': node['osl-rt']['fqdn'])
   server_aliases [node['osl-rt']['internal-domain']]
@@ -131,6 +133,7 @@ end
 
 # Set up the queues in RT
 node['osl-rt']['queues'].each do |pt, email|
+  next unless email
   execute "Creating RT queue for #{pt}" do
     command <<~EOC
     HOSTALIASES=/root/.rthost \
@@ -145,7 +148,7 @@ end
 
 # Set up the procmail
 template "/home/#{node['osl-rt']['user']}/.procmailrc" do
-  source 'rt/support.procmailrc.erb'
+  source 'support.procmailrc.erb'
   cookbook 'osl-rt'
   owner node['osl-rt']['user']
   group node['osl-rt']['user']
