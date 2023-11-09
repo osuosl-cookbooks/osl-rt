@@ -1,6 +1,16 @@
 module OslRT
   module Cookbook
     module Helpers
+      # Take all of the config settings set in the databag, and overwrite the default attributes.
+      def osl_rt_set_attributes
+        rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
+
+        # Iterate over all keys which will be replaced
+        %w(fqdn user internal-comain db queues plugins lifecycles).each do |key|
+          node.override['osl-rt'][key] = rt_secrets[key] if rt_secrets[key]
+        end
+      end
+
       # Initalize the configuration options given the attributes
       def osl_rt_init_config
         rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])

@@ -1,5 +1,51 @@
 {
   "db-username": "rt-user",
   "db-password": "rt-password",
-  "root-password": "my-epic-rt"
+  "root-password": "my-epic-rt",
+  "user": "support",
+  "queues": {
+    "Support": "support",
+    "Frontend Team": "frontend",
+    "Backend Team": "backend",
+    "DevOps Team": "devops",
+    "Marketing Team": "advertising",
+    "The Board Of Directors": "board"
+  },
+  "plugins": ["RT::Extension::REST2", "RT::Authen::Token"],
+  "lifecycles": {
+    "default": {
+      "initial": [ "new" ],
+      "active": [ "open" ],
+      "inactive": ["stalled", "resolved", "rejected", "deleted"],
+      
+      "defaults": {
+        "on_create": "new",
+        "on_merge": "resolved",
+        "approved": "open",
+        "denied": "rejected"
+      },
+      
+      "transitions": {
+        "": ["new", "open", "resolved"],
+        "new": ["open", "stalled", "resolved", "rejected", "deleted"],
+        "open": ["new", "stalled", "resolved", "rejected", "deleted"],
+        "stalled": ["new", "open", "rejected", "resolved", "deleted"],
+        "resolved": ["new", "open", "stalled", "rejected", "deleted"],
+        "rejected": ["new", "open", "stalled", "resolved", "deleted"],
+        "deleted": ["new", "open", "stalled", "rejected", "resolved"]
+      },
+      
+      "rights": {
+        "* -> deleted": "DeleteTicket",
+        "* -> *": "ModifyTicket"
+      },
+
+      "actions": {
+        "new -> open": {
+          "label": "Open It",
+          "update": "Respond"
+        }
+      }
+    }
+  }
 }

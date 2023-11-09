@@ -40,6 +40,9 @@ include_recipe 'perl'
 
 package %w(request-tracker mutt procmail)
 
+# Initalize the attributes, and overwrite the defaults
+osl_rt_set_attributes
+
 rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
 
 # Root Account

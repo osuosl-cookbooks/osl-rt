@@ -11,9 +11,9 @@ default['osl-rt']['db']['type'] = 'mysql'
 default['osl-rt']['internal-domain'] = 'rtlocal'
 default['osl-rt']['data-bag'] = 'default'
 
-default['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
+default['osl-rt']['plugins'] = []
 default['osl-rt']['lifecycles'] = {
-  'default' => {
+  'example' => {
     'initial' => [ 'new' ],
     'active' => [ 'open' ],
     'inactive' => %w(stalled resolved rejected deleted),
@@ -39,6 +39,7 @@ default['osl-rt']['lifecycles'] = {
       '* -> deleted' => 'DeleteTicket',
       '* -> *' => 'ModifyTicket',
     },
+
     'actions' => {
       'new -> open' => {
         'label' => 'Open It',
