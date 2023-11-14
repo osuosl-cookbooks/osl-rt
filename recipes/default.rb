@@ -41,9 +41,9 @@ include_recipe 'perl'
 package %w(request-tracker mutt procmail)
 
 # Initalize the attributes, and overwrite the defaults
-osl_rt_set_attributes
+rt_config = osl_rt_load_config_defaults
 
-rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
+rt_config = rt_config.merge(data_bag_item('request-tracker', node['osl-rt']['data-bag'])) { |_key, _old_value, new_value| new_value }
 
 # Root Account
 template '/root/.rtrc' do
@@ -51,24 +51,24 @@ template '/root/.rtrc' do
   mode '0600'
   sensitive true
   variables(
-    root_pass: rt_secrets['root-password'],
-    domain: node['osl-rt']['internal-domain']
+    root_pass: rt_config['root-password'],
+    domain: rt_config['internal-domain']
   )
 end
 
 # Set up user for mail
-user node['osl-rt']['user'] do
+user rt_config['user'] do
   manage_home true
 end
 
 # User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail
 [
   'root',
-  "/home/#{node['osl-rt']['user']}",
+  "/home/#{rt_config['user']}",
 ].each do |file_path|
   file "/#{file_path}/.rthost" do
     content <<~EOF
-      #{node['osl-rt']['internal-domain']} localhost
+      #{rt_config['internal-domain']} localhost
     EOF
   end
 end
@@ -81,7 +81,7 @@ end
 # RT Initial Configuration.
 file '/opt/rt/etc/RT_SiteConfig.pm' do
   # Use the init function in order to generate the perl config file
-  content osl_rt_init_config
+  content osl_rt_init_config(rt_config)
   group 'apache'
   mode '0640'
   sensitive true
@@ -93,8 +93,8 @@ execute 'init-db-rt' do
   command <<~EOC
     /opt/rt/sbin/rt-setup-database \
       --action init \
-      --dba #{rt_secrets['db-username']} \
-      --dba-password #{rt_secrets['db-password']} \
+      --dba #{rt_config['db-username']} \
+      --dba-password #{rt_config['db-password']} \
       --skip-create && \
     touch /opt/rt/chef/init-db-rt
   EOC
@@ -105,12 +105,12 @@ end
 # Set a new password for root
 execute 'Set root password' do
   command <<~EOC
-    mysql -u #{rt_secrets['db-username']} \
-      -p#{rt_secrets['db-password']} \
+    mysql -u #{rt_config['db-username']} \
+      -p#{rt_config['db-password']} \
       -e 'UPDATE Users \
-        SET Password=md5(\"#{rt_secrets['root-password']}\") \
+        SET Password=md5(\"#{rt_config['root-password']}\") \
         WHERE Name=\"root\";' \
-      #{node['osl-rt']['db']['name']} && \
+      #{rt_config['db']['name']} && \
     touch /opt/rt/chef/init-root-passwd
   EOC
   creates '/opt/rt/chef/init-root-passwd'
@@ -118,13 +118,13 @@ execute 'Set root password' do
 end
 
 # Set up web app
-apache_app node['osl-rt']['fqdn'] do
+apache_app rt_config['fqdn'] do
   directory '/opt/rt/share/html'
   include_config true
   include_template true
   include_name 'rt'
-  include_params('domain': node['osl-rt']['fqdn'])
-  server_aliases [node['osl-rt']['internal-domain']]
+  include_params('domain': rt_config['fqdn'])
+  server_aliases [rt_config['internal-domain']]
 end
 
 # Forcefully reload Apache during the initial run, in order to allow for setting up the queues properly.
@@ -135,14 +135,14 @@ service 'httpd' do
 end
 
 # Set up the queues in RT
-node['osl-rt']['queues'].each do |pt, email|
+rt_config['queues'].each do |pt, email|
   next unless email
   execute "Creating RT queue for #{pt}" do
     command <<~EOC
     HOSTALIASES=/root/.rthost \
     /opt/rt/bin/rt create -t queue set \
-      name="#{pt}" correspondaddress="#{email}@#{node['osl-rt']['fqdn']}" \
-      commentaddress="#{email}-comment@#{node['osl-rt']['fqdn']}" \
+      name="#{pt}" correspondaddress="#{email}@#{rt_config['fqdn']}" \
+      commentaddress="#{email}-comment@#{rt_config['fqdn']}" \
       && touch /tmp/#{email}done
     EOC
     creates "/tmp/#{email}done"
@@ -150,15 +150,15 @@ node['osl-rt']['queues'].each do |pt, email|
 end
 
 # Set up the procmail
-template "/home/#{node['osl-rt']['user']}/.procmailrc" do
+template "/home/#{rt_config['user']}/.procmailrc" do
   source 'support.procmailrc.erb'
   cookbook 'osl-rt'
-  owner node['osl-rt']['user']
-  group node['osl-rt']['user']
+  owner rt_config['user']
+  group rt_config['user']
   variables(
-    rt_queues: node['osl-rt']['queues'],
-    fqdn: node['osl-rt']['fqdn'],
-    domain_name: node['osl-rt']['internal-domain'],
+    rt_queues: rt_config['queues'],
+    fqdn: rt_config['fqdn'],
+    domain_name: rt_config['internal-domain'],
     error_email: node['platform']
   )
 end
@@ -174,8 +174,8 @@ cookbook_file '/etc/Muttrc.local' do
   cookbook 'osl-rt'
 end
 
-node.default['osl-postfix']['main']['mydestination'] = "$myhostname, localhost.$mydomain, localhost, #{node['osl-rt']['fqdn']}"
-node.default['osl-postfix']['main']['mydomain'] = node['osl-rt']['fqdn']
+node.default['osl-postfix']['main']['mydestination'] = "$myhostname, localhost.$mydomain, localhost, #{rt_config['fqdn']}"
+node.default['osl-postfix']['main']['mydomain'] = rt_config['fqdn']
 
 include_recipe 'osl-postfix::server'
 include_recipe 'postfix::aliases'

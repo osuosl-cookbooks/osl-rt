@@ -1,39 +1,42 @@
 module OslRT
   module Cookbook
     module Helpers
-      # Take all of the config settings set in the databag, and overwrite the default attributes.
-      def osl_rt_set_attributes
-        rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
-
-        # Iterate over all keys which will be replaced
-        %w(fqdn user internal-comain db queues plugins lifecycles).each do |key|
-          node.override['osl-rt'][key] = rt_secrets[key] if rt_secrets[key]
-        end
+      # Initalize the default configurations
+      def osl_rt_load_config_defaults
+        {
+          'db' => {
+            'type' => 'mysql',
+            'host' => 'localhost',
+            'name' => 'rt',
+          },
+          'fqdn' => 'example.org',
+          'user' => 'support',
+          'internal-domain' => 'rtlocal',
+          'plugins' => [],
+        }
       end
 
       # Initalize the configuration options given the attributes
-      def osl_rt_init_config
-        rt_secrets = data_bag_item('request-tracker', node['osl-rt']['data-bag'])
-
+      def osl_rt_init_config(rt_config)
         config_options = {}
-        config_options['$rtname'] = node['osl-rt']['fqdn']
-        config_options['$WebDomain'] = node['osl-rt']['fqdn']
-        config_options['$Organization'] = node['osl-rt']['fqdn'][/([\w\-_]+\.+\w+$)/]
-        config_options['$CorrespondAddress'] = "#{node['osl-rt']['user']}@#{config_options['$Organization']}"
-        config_options['$CommentAddress'] = "#{node['osl-rt']['default']}-comment@#{config_options['$Organization']}"
-        config_options['$DatabaseType'] = node['osl-rt']['db']['type']
-        config_options['$DatabaseHost'] = node['osl-rt']['db']['host']
-        config_options['$DatabaseRTHost'] = node['osl-rt']['db']['host']
-        config_options['$DatabaseName'] = node['osl-rt']['db']['name']
-        config_options['$DatabaseUser'] = rt_secrets['db-username']
-        config_options['$DatabasePassword'] = rt_secrets['db-password']
-        config_options['_Plugins'] = node['osl-rt']['plugins'] if node['osl-rt']['plugins']
-        config_options['_Lifecycles'] = node['osl-rt']['lifecycles'] if node['osl-rt']['lifecycles']
+        config_options['$rtname'] = rt_config['fqdn']
+        config_options['$WebDomain'] = rt_config['fqdn']
+        config_options['$Organization'] = rt_config['fqdn'][/([\w\-_]+\.+\w+$)/]
+        config_options['$CorrespondAddress'] = "#{rt_config['user']}@#{config_options['$Organization']}"
+        config_options['$CommentAddress'] = "#{rt_config['default']}-comment@#{config_options['$Organization']}"
+        config_options['$DatabaseType'] = rt_config['db']['type']
+        config_options['$DatabaseHost'] = rt_config['db']['host']
+        config_options['$DatabaseRTHost'] = rt_config['db']['host']
+        config_options['$DatabaseName'] = rt_config['db']['name']
+        config_options['$DatabaseUser'] = rt_config['db-username']
+        config_options['$DatabasePassword'] = rt_config['db-password']
+        config_options['_Plugins'] = rt_config['plugins'] if rt_config['plugins']
+        config_options['_Lifecycles'] = rt_config['lifecycles'] if rt_config['lifecycles']
 
         # Set up the queue emails
-        rt_emails = init_emails(node['osl-rt']['queues'], node['osl-rt']['fqdn'], node['osl-rt']['user'])
+        rt_emails = init_emails(rt_config['queues'], rt_config['fqdn'], rt_config['user'])
 
-        config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{node['osl-rt']['fqdn']}))"
+        config_options['$RTAddressRegexp'] = "^(#{rt_emails.join('|')}(-comment)?\@(#{rt_config['fqdn']}))"
 
         # Since this is recipe-driven, go straight to parsing the config options, then return the final config file.
         parse_config(config_options)

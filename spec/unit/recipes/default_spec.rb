@@ -22,30 +22,6 @@ describe 'osl-rt::default' do
   cached(:subject) { chef_run }
   platform 'almalinux', '8'
 
-  # Attributes
-  default_attributes['osl-rt']['queues'].tap do |q|
-    q['Support'] = 'support'
-    q['Frontend Team'] = 'frontend'
-    q['Backend Team'] = 'backend'
-    q['DevOps Team'] = 'devops'
-    q['Marketing Team'] = 'advertising'
-    q['The Board Of Directors'] = 'board'
-  end
-
-  default_attributes['osl-rt']['db'].tap do |db|
-    db['type'] = 'mysql'
-    db['host'] = 'localhost'
-    db['name'] = 'rt'
-    db['username'] = 'rt-user'
-    db['password'] = 'rt-password'
-  end
-
-  default_attributes['osl-rt']['fqdn'] = 'example.org'
-  default_attributes['osl-rt']['user'] = 'support'
-  default_attributes['osl-rt']['root-password'] = 'my-epic-rt'
-  default_attributes['osl-rt']['plugins'] = %w(RT::Extension::REST2 RT::Authen::Token)
-  default_attributes['osl-rt']['internal-domain'] = 'rtlocal'
-
   default_attributes['osl-rt']['data-bag'] = 'default'
 
   # Stubbed commands
@@ -55,6 +31,52 @@ describe 'osl-rt::default' do
       'db-username': 'rt-user',
       'db-password': 'rt-password',
       'root-password': 'my-epic-rt',
+      'user': 'support',
+      'queues': {
+        'Support': 'support',
+        'Frontend Team': 'frontend',
+        'Backend Team': 'backend',
+        'DevOps Team': 'devops',
+        'Marketing Team': 'advertising',
+        'The Board Of Directors': 'board',
+      },
+      'plugins': ['RT::Extension::REST2', 'RT::Authen::Token'],
+      'lifecycles': {
+        'default': {
+          'initial': [ 'new' ],
+          'active': [ 'open' ],
+          'inactive': %w(stalled resolved rejected deleted),
+
+          'defaults': {
+            'on_create': 'new',
+            'on_merge': 'resolved',
+            'approved': 'open',
+            'denied': 'rejected',
+          },
+
+          'transitions': {
+            '': %w(new open resolved),
+            'new': %w(open stalled resolved rejected deleted),
+            'open': %w(new stalled resolved rejected deleted),
+            'stalled': %w(new open rejected resolved deleted),
+            'resolved': %w(new open stalled rejected deleted),
+            'rejected': %w(new open stalled resolved deleted),
+            'deleted': %w(new open stalled rejected resolved),
+          },
+
+          'rights': {
+            '* -> deleted': 'DeleteTicket',
+            '* -> *': 'ModifyTicket',
+          },
+
+          'actions': {
+            'new -> open': {
+              'label': 'Open It',
+              'update': 'Respond',
+            },
+          },
+        },
+      },
     })
   end
 
@@ -184,7 +206,6 @@ describe 'osl-rt::default' do
           'DevOps Team' => 'devops',
           'Marketing Team' => 'advertising',
           'The Board Of Directors' => 'board',
-          'Support Example' => nil,
         },
         domain_name: 'rtlocal',
         'fqdn': 'example.org',

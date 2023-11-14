@@ -14,7 +14,7 @@ Do **NOT** set the configuration in the attributes, instead use data bags.
 
 Name       | Type   | Description                                                            | Default
 -----------|--------|------------------------------------------------------------------------|---------
-`data-bag` | String | The name of the databag item. The data bag is always `request-tracker` | `default`
+`data-bag` | String | The name of the databag item. The data bag is always `request-tracker` | nil
 
 ## Data Bag Attributes
 
