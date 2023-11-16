@@ -31,7 +31,7 @@ Name             | Type   | Description                                         
 `db.name`        | String | The DB name on the DB server                                 | `rt`
 `queues`         | Hash   | The queues and emails available for RT. The key is the pretty print, and the value is a email-valid name. | `{'Support Example': nil}` Any nil-valued key will be ignored.
 `plugins`        | Array  | A list of [plugins](https://rt-wiki.bestpractical.com/wiki/Extensions) to add to the RT site | `[]`
-`lifecycles`     | Hash   | `WARNING: Default set to a custom lifecycle, explicitly set this to nil for actual default.` Any [custom lifecycles](https://docs.bestpractical.com/rt/4.4.1/customizing/lifecycles.html) to make available in RT | A custom example of a default lifecycle.
+`lifecycles`     | Hash   | Any [custom lifecycles](https://docs.bestpractical.com/rt/4.4.1/customizing/lifecycles.html) to make available in RT | `{}` Provides default lifecycle.
 
 ### Example Data Bag Attributes
 
