@@ -36,8 +36,14 @@ Name             | Type   | Description                                         
 ### Example Data Bag Attributes
 
 ```json
-# Create three different Queues. The keys are the "pretty print" name, while the values are the email name.
 {
+  "db": {
+    "type": "mysql",
+    "host": "localhost",
+    "name": "rt"
+  },
+  "fqdn": "support.example.org",
+  "user": "support",
   "queues": {
     "Support": "support",
     "Frontend Team": "frontend",
@@ -45,34 +51,8 @@ Name             | Type   | Description                                         
     "DevOps Team": "devops",
     "Marketing Team": "advertising",
     "The Board Of Directors": "board"
-  }
-
-# Set up the Database connection
-{
-  "db": {
-    "type": "mysql",
-    "host": "localhost",
-    "name": "rt"
-  }
-}
-
-# Configure the domain name that the website and email reciever/sender will be from
-{
-  "fqdn": "support.example.org"
-}
-
-# Set the name of the user who will be managing the RT emails recieved
-{
-  "user": "support"
-}
-
-# Add on any extra plugins to the RT site, as an array
-{
+  },
   "plugins": ["RT::Extension::REST2", "RT::Authen::Token"]
-}
-
-# Create a custom lifecycle to use, leaving this blank will only supply the stock lifecycle
-{
   "lifecycles": {
     "new-wave": {
       "initial": ["order in"],
@@ -89,6 +69,7 @@ Name             | Type   | Description                                         
       "rights": {
         "* => order in": "ResetOrder"
       }
+    }
   }
 }
 ```

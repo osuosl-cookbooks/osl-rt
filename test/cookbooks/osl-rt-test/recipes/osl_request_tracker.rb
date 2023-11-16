@@ -10,7 +10,9 @@ end
 # Request Tracker
 include_recipe 'osl-rt'
 
-# Restart Apache
+# Restart Apache, removing race condition
+# The website is already "deployed", but there is a race condition of the site being up in time
+# and our test sending in a support ticket.
 service 'httpd' do
   action :restart
   not_if { ::File.exist?('/root/first_run_done') }
