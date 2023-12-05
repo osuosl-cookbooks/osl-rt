@@ -1,0 +1,30 @@
+DEFAULT=$HOME/Mail/
+PATH=/usr/local/bin:/usr/bin:/bin
+MAILDIR=$HOME/Mail/
+LOGFILE=$MAILDIR/from
+HOSTALIASES=$HOME/.rthost
+
+:0:
+* ^X-Spam-Status: Yes
+.Spam/
+
+:0:
+* ^From: MAILER-DAEMON@<%= @domain_name %>
+/dev/null
+
+<% @rt_queues.each do |queue, email| -%>
+<%- next if !email -%>
+:0:.rt-mailparse.lock
+* ^X-Original-To: <%= email %>@<%= @fqdn %>
+| /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action correspond --url http://<%= @domain_name %>
+
+:0:.rt-mailparse.lock
+* ^X-Original-To: <%= email %>-comment@<%= @fqdn %>
+| /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action comment --url http://<%= @domain_name %>
+<% end -%>
+
+:0f
+| /bin/sed -e 's/^Subject:/Subject: [RT FAILED]/g'
+
+:0
+! <%= @error_email %>

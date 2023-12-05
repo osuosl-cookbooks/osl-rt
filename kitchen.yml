@@ -5,10 +5,15 @@ verifier:
 provisioner:
   name: chef_infra
   enforce_idempotency: true
-  multiple_converge: 2
+  multiple_converge: 3
   deprecations_as_errors: true
+  data_bags_path: test/integration/data_bags
+
+driver:
+  name: openstack
+  flavor_ref: 'm1.large'
 
 suites:
   - name: default
     run_list:
-      - recipe[osl-rt::default]
+      - recipe[osl-rt-test::osl_request_tracker]
