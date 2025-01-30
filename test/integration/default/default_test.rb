@@ -83,12 +83,12 @@ end
 describe file('/etc/aliases') do
   it { should exist }
   [
-    'frontend: "support"',
-    'backend: "support"',
-    'devops: "support"',
-    'advertising: "support"',
-    'board: "support"',
-    'support: "support"',
+    'frontend: support',
+    'backend: support',
+    'devops: support',
+    'advertising: support',
+    'board: support',
+    'support: support',
   ].each do |line|
     its('content') { should match Regexp.escape line }
   end
