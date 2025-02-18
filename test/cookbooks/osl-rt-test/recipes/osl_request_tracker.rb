@@ -1,5 +1,9 @@
-# Download mailx for testing the email queue later
-package %w(mailx jq)
+# Download mailx/s-nail for testing the email queue later
+if node['platform_version'].to_i <= 8
+  package %w(mailx jq)
+else
+  package %w(s-nail jq)
+end
 
 # Database
 osl_mysql_test 'rt' do
