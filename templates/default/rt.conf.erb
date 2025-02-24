@@ -12,6 +12,7 @@ SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
 </Location>
 
 <Perl>
+  use lib qw(/opt/rt/lib/perl5);
   use Plack::Handler::Apache2;
   Plack::Handler::Apache2->preload("/opt/rt/sbin/rt-server");
 </Perl>

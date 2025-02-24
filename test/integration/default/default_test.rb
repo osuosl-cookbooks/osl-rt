@@ -165,6 +165,11 @@ describe file '/home/support/.procmailrc' do
   its('group') { should cmp 'support' }
 end
 
+# Send a test ticket
+describe command 'echo "Hello, I need help creating a Request Tracker instance" | mailx -r root@localhost -s "support-test" support@example.org' do
+  its('exit_status') { should eq 0 }
+end
+
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' do
   its('exit_status') { should eq 0 }
   [
