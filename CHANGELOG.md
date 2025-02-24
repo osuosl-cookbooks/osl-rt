@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+1.1.0 (2025-02-24)
+------------------
+- Add AlmaLinux 9
+
 1.0.2 (2025-01-30)
 ------------------
 - Fixes for postfix-6.1.0
