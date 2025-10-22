@@ -77,11 +77,7 @@ describe postfix_conf('/etc/postfix/main.cf') do
   its('mailbox_command') { should eq '/usr/bin/procmail' }
   its('mailbox_size_limit') { should eq '0' }
   its('message_size_limit') { should eq '102400000' }
-  if os.release.to_i < 10
-    its('transport_maps') { should eq 'hash:/etc/postfix/transport' }
-  else
-    its('transport_maps') { should eq 'texthash:/etc/postfix/transport' }
-  end
+  its('transport_maps') { should eq 'hash:/etc/postfix/transport' }
 end
 
 describe file('/etc/aliases') do
