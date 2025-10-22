@@ -174,7 +174,6 @@ cookbook_file '/etc/Muttrc.local' do
   cookbook 'osl-rt'
 end
 
-
 node.default['osl-postfix']['main']['mydestination'] = "$myhostname, localhost.$mydomain, localhost, #{rt_config['fqdn']}"
 node.default['osl-postfix']['main']['mydomain'] = rt_config['fqdn']
 

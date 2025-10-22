@@ -197,4 +197,3 @@ describe command "HOSTALIASES=/root/.rthost curl -sk -u 'root:my-epic-rt' http:/
   its('exit_status') { should eq 0 }
   its('stdout') { should match /^"support-test"$/ }
 end
-
