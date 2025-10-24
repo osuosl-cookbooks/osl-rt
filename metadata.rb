@@ -24,3 +24,4 @@ depends           'perl'
 
 supports          'almalinux', '~> 8.0'
 supports          'almalinux', '~> 9.0'
+supports          'almalinux', '~> 10.0'
