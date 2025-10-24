@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+1.2.0 (2025-10-24)
+------------------
+- Almalinux 10 Integration
+
 1.1.0 (2025-02-24)
 ------------------
 - Add AlmaLinux 9
