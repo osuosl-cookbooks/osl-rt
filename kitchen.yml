@@ -9,11 +9,10 @@ transport:
   name: rsync
 
 provisioner:
-  name: chef_infra
-  product_name: cinc
+  name: cinc_infra
   product_version: '18'
   enforce_idempotency: true
-  multiple_converge: 3
+  multiple_converge: 2
   deprecations_as_errors: true
   data_bags_path: test/integration/data_bags
 
@@ -28,3 +27,17 @@ suites:
       - recipe[osl-rt-test::osl_request_tracker]
     provisioner:
       flavor_ref: 'c2.local.8c8m50d'
+  - name: two-domain
+    run_list:
+      - recipe[osl-rt-test::two_domain]
+    provisioner:
+      flavor_ref: 'c2.local.8c8m50d'
+  # Imports a pre-seeded older-RT database (test/cookbooks/osl-rt-test/files/rt-seed.sql.gz,
+  # not committed -- see docs/migration.md) and exercises the db-upgrade path.
+  - name: migration
+    run_list:
+      - recipe[osl-rt-test::migration]
+    provisioner:
+      flavor_ref: 'c2.local.8c8m50d'
+    includes:
+      - almalinux-9

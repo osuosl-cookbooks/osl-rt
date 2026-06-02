@@ -9,18 +9,23 @@ HOSTALIASES=$HOME/.rthost
 .Spam/
 
 :0:
-* ^From: MAILER-DAEMON@<%= @domain_name %>
+* ^From: MAILER-DAEMON@<%= @mail_domain %>
 /dev/null
 
+<% if @forward_email -%>
+:0 c
+! <%= @forward_email %>
+
+<% end -%>
 <% @rt_queues.each do |queue, email| -%>
 <%- next if !email -%>
 :0:.rt-mailparse.lock
-* ^X-Original-To: <%= email %>@<%= @fqdn %>
-| /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action correspond --url http://<%= @domain_name %>
+* ^X-Original-To: <%= email %>@<%= @domain_match %>
+| /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action correspond --url http://<%= @internal_domain %>
 
 :0:.rt-mailparse.lock
-* ^X-Original-To: <%= email %>-comment@<%= @fqdn %>
-| /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action comment --url http://<%= @domain_name %>
+* ^X-Original-To: <%= email %>-comment@<%= @domain_match %>
+| /opt/rt/bin/rt-mailgate --queue "<%= queue %>" --action comment --url http://<%= @internal_domain %>
 <% end -%>
 
 :0f
