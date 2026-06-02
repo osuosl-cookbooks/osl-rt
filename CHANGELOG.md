@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+2.0.0 (2026-06-02)
+------------------
+- Harden osl-rt: bug fixes, two-domain mail, RT5/EL10, import/upgrade, parity
+
 1.2.0 (2025-10-24)
 ------------------
 - Almalinux 10 Integration
