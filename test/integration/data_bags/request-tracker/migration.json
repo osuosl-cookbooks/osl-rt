@@ -1,0 +1,15 @@
+{
+  "db-username": "rt-user",
+  "db-password": "rt-password",
+  "root-password": "my-epic-rt",
+  "user": "support",
+  "db-upgrade": "4.4.4",
+  "queues": {
+    "Imported Queue": "imported",
+    "Migrated Queue": "migrated"
+  },
+  "plugins": [
+    "RT::Extension::REST2",
+    "RT::Authen::Token"
+  ]
+}

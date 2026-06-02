@@ -18,21 +18,36 @@ end
   end
 end
 
+# SSL is terminated upstream by HAProxy; the backend listens on plain HTTP only.
 %w(
   25
   80
-  443
 ).each do |p|
   describe port p do
     it { should be_listening }
   end
 end
 
+# mod_remoteip restores the real client IP from the HAProxy X-Forwarded-For header.
+describe apache_conf('/etc/httpd/mods-available/remoteip.conf') do
+  its('RemoteIPHeader') { should cmp 'X-Forwarded-For' }
+end
+
 describe http('http://127.0.0.1', headers: { Host: 'example.org' }, ssl_verify: false) do
   its('status') { should cmp 200 }
+  # RT_SID cookie encodes the rtname, confirming RT serves this host.
   its('headers.Set-Cookie') { should match /RT_SID_example.org.80/ }
-  its('body') { should match /RT for example.org/ }
-  its('body') { should match /RT 4.4/ }
+  # RT 5's redesigned login page drops the "RT for <rtname>" banner; assert on 4.4 only.
+  its('body') { should match(/RT for example.org/) } if os[:release].to_i < 10
+end
+
+# RT major version via the package (the login page no longer carries it on RT 5).
+describe package('request-tracker') do
+  if os[:release].to_i >= 10
+    its('version') { should match(/^5\./) }
+  else
+    its('version') { should match(/^4\.4/) }
+  end
 end
 
 describe file '/root/.rtrc' do

@@ -2,7 +2,7 @@
 # Cookbook:: osl-rt
 # Spec:: default
 #
-# Copyright:: 2023-2025, Oregon State University
+# Copyright:: 2023-2026, Oregon State University
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,62 +30,65 @@ describe 'osl-rt::default' do
       # Stubbed commands
       before do
         stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+        # Simulate a fresh database so the one-time DB/queue setup runs.
+        stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+        stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
         stub_data_bag_item('request-tracker', 'default').and_return({
-          'db-username': 'rt-user',
-          'db-password': 'rt-password',
-          'root-password': 'my-epic-rt',
-          'user': 'support',
-          'queues': {
-            'Support': 'support',
-            'Frontend Team': 'frontend',
-            'Backend Team': 'backend',
-            'DevOps Team': 'devops',
-            'Marketing Team': 'advertising',
-            'The Board Of Directors': 'board',
-          },
-          'plugins': ['RT::Extension::REST2', 'RT::Authen::Token'],
-          'lifecycles': {
-            'default': {
-              'initial': [ 'new' ],
-              'active': [ 'open' ],
-              'inactive': %w(stalled resolved rejected deleted),
+                                                                      'db-username': 'rt-user',
+                                                                      'db-password': 'rt-password',
+                                                                      'root-password': 'my-epic-rt',
+                                                                      'user': 'support',
+                                                                      'queues': {
+                                                                        'Support': 'support',
+                                                                        'Frontend Team': 'frontend',
+                                                                        'Backend Team': 'backend',
+                                                                        'DevOps Team': 'devops',
+                                                                        'Marketing Team': 'advertising',
+                                                                        'The Board Of Directors': 'board',
+                                                                      },
+                                                                      'plugins': ['RT::Extension::REST2', 'RT::Authen::Token'],
+                                                                      'lifecycles': {
+                                                                        'default': {
+                                                                          'initial': [ 'new' ],
+                                                                          'active': [ 'open' ],
+                                                                          'inactive': %w(stalled resolved rejected deleted),
 
-              'defaults': {
-                'on_create': 'new',
-                'on_merge': 'resolved',
-                'approved': 'open',
-                'denied': 'rejected',
-              },
+                                                                          'defaults': {
+                                                                            'on_create': 'new',
+                                                                            'on_merge': 'resolved',
+                                                                            'approved': 'open',
+                                                                            'denied': 'rejected',
+                                                                          },
 
-              'transitions': {
-                '': %w(new open resolved),
-                'new': %w(open stalled resolved rejected deleted),
-                'open': %w(new stalled resolved rejected deleted),
-                'stalled': %w(new open rejected resolved deleted),
-                'resolved': %w(new open stalled rejected deleted),
-                'rejected': %w(new open stalled resolved deleted),
-                'deleted': %w(new open stalled rejected resolved),
-              },
+                                                                          'transitions': {
+                                                                            '': %w(new open resolved),
+                                                                            'new': %w(open stalled resolved rejected deleted),
+                                                                            'open': %w(new stalled resolved rejected deleted),
+                                                                            'stalled': %w(new open rejected resolved deleted),
+                                                                            'resolved': %w(new open stalled rejected deleted),
+                                                                            'rejected': %w(new open stalled resolved deleted),
+                                                                            'deleted': %w(new open stalled rejected resolved),
+                                                                          },
 
-              'rights': {
-                '* -> deleted': 'DeleteTicket',
-                '* -> *': 'ModifyTicket',
-              },
+                                                                          'rights': {
+                                                                            '* -> deleted': 'DeleteTicket',
+                                                                            '* -> *': 'ModifyTicket',
+                                                                          },
 
-              'actions': {
-                'new -> open': {
-                  'label': 'Open It',
-                  'update': 'Respond',
-                },
-              },
-            },
-          },
-        })
+                                                                          'actions': {
+                                                                            'new -> open': {
+                                                                              'label': 'Open It',
+                                                                              'update': 'Respond',
+                                                                            },
+                                                                          },
+                                                                        },
+                                                                      },
+                                                                    })
       end
 
       # Recipes dependencies
       %w(
-        osl-apache osl-apache::mod_ssl osl-apache::mod_perl
+        osl-apache osl-apache::mod_remoteip osl-apache::mod_perl
         osl-mysql::client yum-osuosl perl
         osl-postfix::server postfix::aliases
         postfix::access postfix::transports
@@ -100,6 +103,34 @@ describe 'osl-rt::default' do
           mode: '0640',
           sensitive: true
         )
+      end
+
+      # RT Site Config generated content
+      it do
+        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+          "Set($CorrespondAddress, 'support@example.org');"
+        )
+      end
+
+      it do
+        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+          "Set($CommentAddress, 'support-comment@example.org');"
+        )
+      end
+
+      it do
+        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+          "Set($RTAddressRegexp, '^((advertising|backend|board|devops|frontend|support)(-comment)?@(example\\.org))$');"
+        )
+      end
+
+      # REST2/Authen::Token are plugins on RT 4.4 (EL8/9) but core on RT 5 (EL10+).
+      if p[:version].to_i >= 10
+        it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
+        it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Authen::Token');") }
+      else
+        it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
+        it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Authen::Token');") }
       end
 
       # Root Account Config
@@ -119,38 +150,42 @@ describe 'osl-rt::default' do
         )
       end
 
-      # RT Database Initalization
+      # RT Database Initalization (guarded by DB state, not a marker file)
       it do
         is_expected.to run_execute('init-db-rt').with(
-          creates: '/opt/rt/chef/init-db-rt',
           sensitive: true,
           command: <<~EOC
         /opt/rt/sbin/rt-setup-database \
           --action init \
           --dba rt-user \
           --dba-password rt-password \
-          --skip-create && \
-        touch /opt/rt/chef/init-db-rt
+          --skip-create
           EOC
         )
       end
 
-      # Set a new password for root
+      # init-db-rt sets the root password only on a fresh init (never on import)
       it do
-        is_expected.to run_execute('Set root password').with(
-        creates: '/opt/rt/chef/init-root-passwd',
-        sensitive: true,
-        command: <<~EOC
+        expect(chef_run.execute('init-db-rt')).to notify('execute[Set root password]').to(:run).immediately
+      end
+
+      # Root password: action :nothing (fired only by init-db-rt), sensitive, no marker.
+      it do
+        resource = chef_run.execute('Set root password')
+        expect(resource.action).to eq([:nothing])
+        expect(resource.sensitive).to be true
+        expect(resource.command).to eq(<<~EOC)
         mysql -u rt-user \
           -prt-password \
           -e 'UPDATE Users \
             SET Password=md5("my-epic-rt") \
-            WHERE Name="root";\' \
-          rt && \
-        touch /opt/rt/chef/init-root-passwd
+            WHERE Name="root";' \
+          rt
         EOC
-      )
       end
+
+      # The upgrade step is opt-in and absent unless 'db-upgrade' is set
+      it { is_expected.to_not run_execute('upgrade-db-rt') }
 
       # Apache Configuration Website
       it do
@@ -175,14 +210,13 @@ describe 'osl-rt::default' do
           'The Board Of Directors': 'board',
         }.each do |pt, email|
           is_expected.to run_execute("Creating RT queue for #{pt}").with(
-            command: <<~EOC,
+            sensitive: true,
+            command: <<~EOC
         HOSTALIASES=/root/.rthost \
         /opt/rt/bin/rt create -t queue set \
           name="#{pt}" correspondaddress="#{email}@example.org" \
-          commentaddress="#{email}-comment@example.org" \
-          && touch /tmp/#{email}done
+          commentaddress="#{email}-comment@example.org"
             EOC
-            creates: "/tmp/#{email}done"
           )
         end
       end
@@ -210,12 +244,19 @@ describe 'osl-rt::default' do
               'Marketing Team' => 'advertising',
               'The Board Of Directors' => 'board',
             },
-            domain_name: 'rtlocal',
-            'fqdn': 'example.org',
-            error_email: 'almalinux',
+            domain_match: '(example\.org)',
+            internal_domain: 'rtlocal',
+            mail_domain: 'example.org',
+            error_email: 'root',
+            forward_email: nil,
           }
         )
       end
+
+      # No forwarding user or logo configured by default
+      it { is_expected.to_not create_template('/home/support-gmail/.procmailrc') }
+      it { is_expected.to_not create_user('support-gmail') }
+      it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to be_nil }
 
       # Default Procmail setup
       it do
@@ -232,5 +273,172 @@ describe 'osl-rt::default' do
         )
       end
     end
+  end
+
+  # Optional mail forwarding + branding (two-user split, off-box forward, logo)
+  context 'with forwarding and branding' do
+    cached(:chef_run) do
+      ChefSpec::SoloRunner.new(ALMA_9) do |node|
+        node.default['osl-rt']['data-bag'] = 'default'
+      end.converge(described_recipe)
+    end
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'forward-email': 'archive@gapps.example.org',
+                                                                    'forward-user': 'support-gmail',
+                                                                    'logo': {
+                                                                      'url': 'https://example.org/img/logo.png',
+                                                                      'link': 'https://support.example.org/',
+                                                                      'alt': 'Example Support',
+                                                                    },
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    # Dedicated forward user is created and its procmailrc forwards off-box
+    it { is_expected.to create_user('support-gmail').with(manage_home: true) }
+    it do
+      is_expected.to create_template('/home/support-gmail/.procmailrc').with(
+        source: 'forward.procmailrc.erb',
+        cookbook: 'osl-rt',
+        owner: 'support-gmail',
+        group: 'support-gmail',
+        variables: {
+          mail_domain: 'example.org',
+          forward_email: 'archive@gapps.example.org',
+        }
+      )
+    end
+    it { is_expected.to render_file('/home/support-gmail/.procmailrc').with_content('! archive@gapps.example.org') }
+
+    # In split mode the RT user does NOT also CC the copy
+    it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to be_nil }
+
+    # Queue alias delivers to both the RT user and the forward user
+    it { is_expected.to render_file('/etc/aliases').with_content('support: support, support-gmail') }
+
+    # Logo is fetched and wired into the RT config
+    it { is_expected.to create_directory('/opt/rt/share/static/images').with(recursive: true) }
+    it do
+      is_expected.to create_remote_file('/opt/rt/share/static/images/logo.png').with(
+        source: 'https://example.org/img/logo.png'
+      )
+    end
+    it do
+      is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+        .with_content("Set($LogoURL, '/static/images/logo.png');")
+        .with_content("Set($LogoLinkURL, 'https://support.example.org/');")
+        .with_content("Set($LogoAltText, 'Example Support');")
+    end
+  end
+
+  # Single-user CC-forward (forward-email without forward-user)
+  context 'with single-user forwarding' do
+    cached(:chef_run) do
+      ChefSpec::SoloRunner.new(ALMA_9) do |node|
+        node.default['osl-rt']['data-bag'] = 'default'
+      end.converge(described_recipe)
+    end
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'forward-email': 'archive@gapps.example.org',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    # The RT user CCs a copy off-box; no separate forward user exists
+    it { is_expected.to_not create_user('support-gmail') }
+    it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to eq('archive@gapps.example.org') }
+    it { is_expected.to render_file('/home/support/.procmailrc').with_content('! archive@gapps.example.org') }
+  end
+
+  # Opt-in upgrade: 'db-upgrade' = the DB's RT version, passed as --upgrade-from.
+  context 'with db-upgrade set to a version' do
+    cached(:chef_run) do
+      ChefSpec::SoloRunner.new(ALMA_9) do |node|
+        node.default['osl-rt']['data-bag'] = 'default'
+      end.converge(described_recipe)
+    end
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'db-upgrade': '4.4.4',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it do
+      is_expected.to run_execute('upgrade-db-rt').with(
+        creates: '/opt/rt/chef/upgrade-db-rt',
+        cwd: '/opt/rt',
+        sensitive: true,
+        command: <<~EOC
+        printf '\\ny\\n' | /opt/rt/sbin/rt-setup-database \
+          --action upgrade \
+          --upgrade-from 4.4.4 \
+          --dba rt-user \
+          --dba-password rt-password \
+          > /opt/rt/chef/upgrade-db-rt.log 2>&1 && \
+        touch /opt/rt/chef/upgrade-db-rt
+        EOC
+      )
+    end
+  end
+
+  # RT user not among queue emails: still self-aliased so its mailbox gets mail
+  # (overrides the system "support: postmaster" default).
+  context 'with the RT user not among the queue emails' do
+    cached(:chef_run) do
+      ChefSpec::SoloRunner.new(ALMA_9) do |node|
+        node.default['osl-rt']['data-bag'] = 'default'
+      end.converge(described_recipe)
+    end
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'queues': {
+                                                                      'Imported Queue': 'imported',
+                                                                    },
+                                                                  })
+    end
+
+    it { is_expected.to render_file('/etc/aliases').with_content('support: support') }
+    it { is_expected.to render_file('/etc/aliases').with_content('imported: support') }
   end
 end

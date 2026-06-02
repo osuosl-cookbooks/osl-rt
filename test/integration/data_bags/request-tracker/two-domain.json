@@ -1,0 +1,23 @@
+{
+  "db-username": "rt-user",
+  "db-password": "rt-password",
+  "root-password": "my-epic-rt",
+  "user": "support",
+  "fqdn": "support.example.org",
+  "mail-domain": "example.org",
+  "forward-email": "root@example.org",
+  "forward-user": "support-gmail",
+  "logo": {
+    "url": "file:///tmp/osl-rt-test-logo.png",
+    "link": "https://support.example.org/",
+    "alt": "Example Support"
+  },
+  "queues": {
+    "Support": "support",
+    "Systems Team": "systems"
+  },
+  "plugins": [
+    "RT::Extension::REST2",
+    "RT::Authen::Token"
+  ]
+}
