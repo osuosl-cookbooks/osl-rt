@@ -14,6 +14,15 @@ end
 # Request Tracker
 include_recipe 'osl-rt'
 
+# Exercise the RT_SiteConfig.d drop-in: a snippet dropped here must be picked up
+# by RT's own config loader (asserted in the inspec via RT::LoadConfig). $Timezone
+# is otherwise unset by osl-rt, so it's a clean, observable value to check.
+file '/opt/rt/etc/RT_SiteConfig.d/99-dropin-test.pm' do
+  content "Set($Timezone, 'US/Pacific');\n1;\n"
+  group 'apache'
+  mode '0640'
+end
+
 # Restart Apache, removing race condition
 # The website is already "deployed", but there is a race condition of the site being up in time
 # and our test sending in a support ticket.

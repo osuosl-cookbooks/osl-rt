@@ -212,3 +212,15 @@ describe command "HOSTALIASES=/root/.rthost curl -sk -u 'root:my-epic-rt' http:/
   its('exit_status') { should eq 0 }
   its('stdout') { should match /^"support-test"$/ }
 end
+
+# RT_SiteConfig.d drop-in: the snippet dropped by the test recipe is loaded by
+# RT's own config loader, so $Timezone resolves to the value it set. This proves
+# the do-glob appended to RT_SiteConfig.pm actually sources the directory.
+describe file('/opt/rt/etc/RT_SiteConfig.d/99-dropin-test.pm') do
+  it { should exist }
+end
+
+describe command %q{perl -I/opt/rt/lib -e 'use RT; RT::LoadConfig(); print RT->Config->Get("Timezone")'} do
+  its('exit_status') { should eq 0 }
+  its('stdout') { should cmp 'US/Pacific' }
+end

@@ -101,6 +101,14 @@ file '/opt/rt/etc/RT_SiteConfig.pm' do
   notifies :reload, 'apache2_service[osuosl]'
 end
 
+# Drop-in directory for additional site config, loaded by the do-glob appended to
+# RT_SiteConfig.pm above. A wrapping cookbook drops *.pm files here for config the
+# data-bag-driven generator can't express (e.g. external auth / SLA hashrefs).
+directory '/opt/rt/etc/RT_SiteConfig.d' do
+  group 'apache'
+  mode '0750'
+end
+
 # Optional custom logo, fetched into RT's static images dir; $LogoURL is set in
 # osl_rt_init_config.
 if rt_config['logo'] && rt_config['logo']['url']

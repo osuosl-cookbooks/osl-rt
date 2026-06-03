@@ -105,6 +105,19 @@ describe 'osl-rt::default' do
         )
       end
 
+      # Drop-in config dir + the loader that sources it from RT_SiteConfig.pm
+      it do
+        is_expected.to create_directory('/opt/rt/etc/RT_SiteConfig.d').with(
+          group: 'apache',
+          mode: '0750'
+        )
+      end
+
+      it do
+        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+          .with_content("do $_ for sort glob('/opt/rt/etc/RT_SiteConfig.d/*.pm');")
+      end
+
       # RT Site Config generated content
       it do
         is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
