@@ -75,6 +75,12 @@ module OslRT
         domain_re = domains.map { |d| d.gsub('.', '\\.') }.join('|')
         config_options['$RTAddressRegexp'] = "^((#{rt_emails.join('|')})(-comment)?@(#{domain_re}))$"
 
+        # RT runs under apache, so by default outgoing mail's envelope sender is
+        # apache@<fqdn> and bounces dead-end at the local apache/root mailbox. Use
+        # each queue's correspond address as the envelope sender instead so bounces
+        # return to a real RT address. Overridable via 'extra-config' (merged below).
+        config_options['$SetOutgoingMailFrom'] = 1
+
         # Merge any raw RT options provided in the data bag (e.g. '$Timezone',
         # '$DefaultQueue', '%FullTextSearch'). These are emitted verbatim by
         # parse_config, so the keys must be valid RT config names.

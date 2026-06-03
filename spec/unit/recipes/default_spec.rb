@@ -137,6 +137,10 @@ describe 'osl-rt::default' do
         )
       end
 
+      # RT runs under apache; use the queue address as the envelope sender so
+      # bounces don't dead-end at the local apache/root mailbox.
+      it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($SetOutgoingMailFrom, 1);') }
+
       # REST2/Authen::Token are plugins on RT 4.4 (EL8/9) but core on RT 5 (EL10+).
       if p[:version].to_i >= 10
         it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }

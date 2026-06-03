@@ -68,6 +68,8 @@ describe file '/opt/rt/etc/RT_SiteConfig.pm' do
     "Set($DatabaseRTHost, 'localhost');",
     "Set($DatabaseUser, 'rt-user');",
     "Set($DatabasePassword, 'rt-password');",
+    # RT runs under apache; envelope sender is the queue address, not apache@<fqdn>.
+    'Set($SetOutgoingMailFrom, 1);',
   ].each do |line|
     its('content') { should match Regexp.escape line }
   end
