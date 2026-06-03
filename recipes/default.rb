@@ -72,6 +72,16 @@ end
   user mail_user do
     manage_home true
   end
+
+  # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
+  # doesn't fail to write its logfile ("Error while writing to ./from"). The
+  # mailgate pipe runs either way, but without this every delivery logs an error.
+  mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
+  directory "#{mail_home}/Mail" do
+    owner mail_user
+    group mail_user
+    mode '0700'
+  end
 end
 
 # User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail

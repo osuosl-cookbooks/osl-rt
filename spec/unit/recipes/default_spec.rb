@@ -241,6 +241,15 @@ describe 'osl-rt::default' do
         )
       end
 
+      # procmail's MAILDIR ($HOME/Mail) must exist or local delivery logs errors.
+      it do
+        is_expected.to create_directory('/home/support/Mail').with(
+          owner: 'support',
+          group: 'support',
+          mode: '0700'
+        )
+      end
+
       # Support Procmail setup
       it do
         is_expected.to create_template('/home/support/.procmailrc').with(
