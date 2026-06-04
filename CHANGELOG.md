@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+2.1.0 (2026-06-04)
+------------------
+- Add RT_SiteConfig.d drop-in support and fix RT mail delivery
+
 2.0.0 (2026-06-02)
 ------------------
 - Harden osl-rt: bug fixes, two-domain mail, RT5/EL10, import/upgrade, parity
