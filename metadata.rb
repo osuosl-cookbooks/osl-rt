@@ -6,7 +6,7 @@ source_url        'https://github.com/osuosl-cookbooks/osl-rt'
 license           'Apache-2.0'
 chef_version      '>= 16.0'
 description       'Installs/Configures an instance of Request Tracker'
-version           '2.1.0'
+version           '2.2.0'
 
 depends           'osl-apache'
 depends           'osl-mysql'

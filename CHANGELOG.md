@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+2.2.0 (2026-06-04)
+------------------
+- Add PostgreSQL backend support
+
 2.1.0 (2026-06-04)
 ------------------
 - Add RT_SiteConfig.d drop-in support and fix RT mail delivery
