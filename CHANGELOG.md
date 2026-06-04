@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+2.2.1 (2026-06-04)
+------------------
+- Add web-port / web-base-url data bag options
+
 2.2.0 (2026-06-04)
 ------------------
 - Add PostgreSQL backend support
