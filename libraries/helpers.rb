@@ -13,6 +13,12 @@ module OslRT
         node['platform_version'].to_i >= 10
       end
 
+      # True when the configured database engine is PostgreSQL. RT expects the
+      # literal 'Pg' for $DatabaseType; anything else (default 'mysql') is MySQL.
+      def osl_rt_pg?(rt_config)
+        rt_config['db']['type'] == 'Pg'
+      end
+
       # Initalize the default configurations
       def osl_rt_load_config_defaults
         {
@@ -117,11 +123,48 @@ module OslRT
         [rt_config['fqdn'], osl_rt_mail_domain(rt_config)].uniq
       end
 
-      # Shell guard (for not_if/only_if) that succeeds when the SQL returns a row,
-      # so one-time DB/queue steps key off real DB state and skip an imported DB.
-      def osl_rt_mysql_guard(rt_config, query)
-        "mysql -u #{rt_config['db-username']} -p#{rt_config['db-password']} " \
-          "-N -B -e \"#{query}\" #{rt_config['db']['name']} 2>/dev/null | grep -q ."
+      # Shell guard (for not_if/only_if) that succeeds when the SQL SELECT returns
+      # a row, so one-time DB/queue steps key off real DB state and skip an
+      # imported DB. Dispatches to the client for the configured engine.
+      def osl_rt_db_guard(rt_config, query)
+        if osl_rt_pg?(rt_config)
+          "PGPASSWORD='#{rt_config['db-password']}' psql -h #{rt_config['db']['host']} " \
+            "-U #{rt_config['db-username']} -tAc \"#{query}\" #{rt_config['db']['name']} 2>/dev/null | grep -q ."
+        else
+          "mysql -u #{rt_config['db-username']} -p#{rt_config['db-password']} " \
+            "-N -B -e \"#{query}\" #{rt_config['db']['name']} 2>/dev/null | grep -q ."
+        end
+      end
+
+      # Query that yields a row only once RT's schema has been loaded, used to
+      # skip DB init (and the root-password set) against an already-populated
+      # database. MySQL uses SHOW TABLES; Postgres folds the unquoted table name
+      # to lowercase, so to_regclass('users') is non-null once the table exists.
+      def osl_rt_schema_present_query(rt_config)
+        osl_rt_pg?(rt_config) ? "SELECT to_regclass('users')" : "SHOW TABLES LIKE 'Users'"
+      end
+
+      # Command to set RT's root password directly in the DB, fired only on a
+      # fresh init (never on import). RT accepts a bare MD5 hash, which both
+      # engines' md5() function produces over the cleartext password.
+      def osl_rt_set_root_password_command(rt_config)
+        if osl_rt_pg?(rt_config)
+          <<~EOC
+            PGPASSWORD='#{rt_config['db-password']}' psql -h #{rt_config['db']['host']} \
+              -U #{rt_config['db-username']} \
+              -c "UPDATE Users SET Password=md5('#{rt_config['root-password']}') WHERE Name='root';" \
+              #{rt_config['db']['name']}
+          EOC
+        else
+          <<~EOC
+            mysql -u #{rt_config['db-username']} \
+              -p#{rt_config['db-password']} \
+              -e 'UPDATE Users \
+                SET Password=md5("#{rt_config['root-password']}") \
+                WHERE Name="root";' \
+              #{rt_config['db']['name']}
+          EOC
+        end
       end
 
       # The plugin list to load, dropping any that ship in core on RT 5 (EL10+).

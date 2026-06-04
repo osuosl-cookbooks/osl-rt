@@ -32,6 +32,12 @@ suites:
       - recipe[osl-rt-test::two_domain]
     provisioner:
       flavor_ref: 'c2.local.8c8m50d'
+  # Same as the default suite but with a PostgreSQL backend (db.type = Pg).
+  - name: postgresql
+    run_list:
+      - recipe[osl-rt-test::osl_request_tracker_postgresql]
+    provisioner:
+      flavor_ref: 'c2.local.8c8m50d'
   # Imports a pre-seeded older-RT database (test/cookbooks/osl-rt-test/files/rt-seed.sql.gz,
   # not committed -- see docs/migration.md) and exercises the db-upgrade path.
   - name: migration

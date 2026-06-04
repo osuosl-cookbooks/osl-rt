@@ -10,6 +10,7 @@ version           '2.1.0'
 
 depends           'osl-apache'
 depends           'osl-mysql'
+depends           'osl-postgresql'
 depends           'osl-postfix'
 depends           'yum-osuosl'
 depends           'perl', '~> 1.2.2'
