@@ -32,19 +32,29 @@ node.default['postfix']['access']['140.211.166.136'] = 'OK' # smtp3.osuosl.org
 node.default['postfix']['access']['140.211.166.137'] = 'OK' # smtp4.osuosl.org
 node.default['postfix']['access']['140.211.166.138'] = 'OK' # smtp1.osuosl.org
 
+# Initalize the attributes, and overwrite the defaults. Loaded up front so the
+# DB-engine-specific setup below (client packages, DB guards) can branch on the
+# configured database type.
+rt_config = osl_rt_load_config_defaults
+
+rt_config = rt_config.merge(data_bag_item('request-tracker', node['osl-rt']['data-bag'])) { |_key, _old_value, new_value| new_value }
+
 include_recipe 'osl-apache'
 include_recipe 'osl-apache::mod_remoteip'
 include_recipe 'osl-apache::mod_perl'
-include_recipe 'osl-mysql::client'
 include_recipe 'yum-osuosl'
 include_recipe 'perl'
 
 package %w(request-tracker mutt procmail)
 
-# Initalize the attributes, and overwrite the defaults
-rt_config = osl_rt_load_config_defaults
-
-rt_config = rt_config.merge(data_bag_item('request-tracker', node['osl-rt']['data-bag'])) { |_key, _old_value, new_value| new_value }
+# Database client + Perl DBD driver for the configured engine. Postgres needs
+# DBD::Pg and the psql client (used by the DB guards below); MySQL pulls in the
+# mariadb client and DBD::MySQL via osl-mysql::client.
+if osl_rt_pg?(rt_config)
+  package %w(perl-DBD-Pg postgresql)
+else
+  include_recipe 'osl-mysql::client'
+end
 
 # Public email domain (defaults to the host fqdn). Mail may be delivered to
 # either the fqdn or the public domain, so build a list of both for matching.
@@ -142,21 +152,14 @@ execute 'init-db-rt' do
       --dba-password #{rt_config['db-password']} \
       --skip-create
   EOC
-  not_if osl_rt_mysql_guard(rt_config, "SHOW TABLES LIKE 'Users'")
+  not_if osl_rt_db_guard(rt_config, osl_rt_schema_present_query(rt_config))
   sensitive true
   notifies :run, 'execute[Set root password]', :immediately
 end
 
 # Set the root password only on a fresh init (notified above), never on import.
 execute 'Set root password' do
-  command <<~EOC
-    mysql -u #{rt_config['db-username']} \
-      -p#{rt_config['db-password']} \
-      -e 'UPDATE Users \
-        SET Password=md5("#{rt_config['root-password']}") \
-        WHERE Name="root";' \
-      #{rt_config['db']['name']}
-  EOC
+  command osl_rt_set_root_password_command(rt_config)
   action :nothing
   sensitive true
 end
@@ -210,7 +213,7 @@ rt_config['queues'].each do |pt, email|
       name="#{pt}" correspondaddress="#{email}@#{mail_domain}" \
       commentaddress="#{email}-comment@#{mail_domain}"
     EOC
-    not_if osl_rt_mysql_guard(rt_config, "SELECT 1 FROM Queues WHERE Name='#{pt}'")
+    not_if osl_rt_db_guard(rt_config, "SELECT 1 FROM Queues WHERE Name='#{pt}'")
     sensitive true
   end
 end

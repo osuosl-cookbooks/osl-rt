@@ -467,4 +467,55 @@ describe 'osl-rt::default' do
     it { is_expected.to render_file('/etc/aliases').with_content('support: support') }
     it { is_expected.to render_file('/etc/aliases').with_content('imported: support') }
   end
+
+  # PostgreSQL backend (db.type = Pg): DBD::Pg + psql client instead of the
+  # mariadb client, and the DB guards/commands use psql.
+  context 'with a postgresql backend' do
+    cached(:chef_run) do
+      ChefSpec::SoloRunner.new(ALMA_9) do |node|
+        node.default['osl-rt']['data-bag'] = 'default'
+      end.converge(described_recipe)
+    end
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      # Fresh DB so the one-time DB/queue setup runs (Postgres guards use psql).
+      stub_command(/to_regclass/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db': {
+                                                                      'type': 'Pg',
+                                                                      'host': 'localhost',
+                                                                      'name': 'rt',
+                                                                    },
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    # Postgres pulls in the Perl driver + psql client, not the mariadb client.
+    it { is_expected.to install_package(%w(perl-DBD-Pg postgresql)) }
+    it { is_expected.to_not include_recipe('osl-mysql::client') }
+
+    # RT is pointed at the Postgres backend.
+    it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Set($DatabaseType, 'Pg');") }
+
+    # Root password is set via psql on a fresh init.
+    it do
+      resource = chef_run.execute('Set root password')
+      expect(resource.action).to eq([:nothing])
+      expect(resource.sensitive).to be true
+      expect(resource.command).to eq(<<~EOC)
+        PGPASSWORD='rt-password' psql -h localhost \
+          -U rt-user \
+          -c "UPDATE Users SET Password=md5('my-epic-rt') WHERE Name='root';" \
+          rt
+      EOC
+    end
+  end
 end

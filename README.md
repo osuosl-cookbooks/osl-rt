@@ -51,7 +51,7 @@ Name             | Type   | Description                                         
 `forward-user`   | String | Optional dedicated local user for the forward (two-user split). When set, queue mail is delivered to both the RT `user` (feeds rt-mailgate) and this user (forwards a copy to `forward-email`), so RT processing and the off-box copy don't interfere. Requires `forward-email`. | nil
 `logo`           | Hash   | Optional custom branding. `url` is fetched into RT's static images dir and `$LogoURL` is set to the served path; `link`/`alt` set `$LogoLinkURL`/`$LogoAltText`. Assumes the default (empty) `WebPath`; override `$LogoURL` via `extra-config` otherwise. | nil
 `internal-domain`| String | A workaround required needs a non-sublevel domain name to access the site internally | `rtlocal`
-`db.type`        | String | The database type, MySQL or Postgres                         | `mysql`
+`db.type`        | String | The database engine, passed to RT as `$DatabaseType`. Use `mysql` for MySQL/MariaDB or `Pg` for PostgreSQL. With `Pg` the cookbook installs the `perl-DBD-Pg` driver and the `psql` client (used by the one-time DB guards) instead of the MariaDB client. | `mysql`
 `db.host`        | String | The hostname of the DB server                                | `localhost`
 `db.name`        | String | The DB name on the DB server                                 | `rt`
 `db-upgrade`     | String | Opt-in: the RT version the database is currently at (e.g. `"4.4.7"`), passed as `--upgrade-from` to apply pending schema upgrades (after importing a DB or an RT package upgrade). The "proceed?" prompt is auto-confirmed, so **back up first**. See [docs/migration.md](docs/migration.md). | unset |
