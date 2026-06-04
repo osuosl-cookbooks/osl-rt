@@ -44,6 +44,14 @@ module OslRT
         config_options = {}
         config_options['$rtname'] = rt_config['fqdn']
         config_options['$WebDomain'] = rt_config['fqdn']
+        # When TLS terminates upstream (HAProxy) and RT serves plain HTTP, RT
+        # otherwise assumes http://<fqdn>:80 and rejects HTTPS form posts with a
+        # "possible cross-site request forgery" error (the browser Referer is :443).
+        # 'web-port' (e.g. 443) makes RT treat itself as HTTPS; 'web-base-url'
+        # overrides the full base URL when the public URL isn't derivable from the
+        # fqdn + port (different host, a WebPath prefix, etc.).
+        config_options['$WebPort'] = rt_config['web-port'] if rt_config['web-port']
+        config_options['$WebBaseURL'] = rt_config['web-base-url'] if rt_config['web-base-url']
         config_options['$Organization'] = mail_domain
         config_options['$CorrespondAddress'] = "#{rt_config['user']}@#{mail_domain}"
         config_options['$CommentAddress'] = "#{rt_config['user']}-comment@#{mail_domain}"

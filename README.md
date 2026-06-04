@@ -45,6 +45,8 @@ Name             | Type   | Description                                         
 `root-password`  | String | The password used for the root account on RT                 | nil
 `fqdn`           | String | The FQDN of the site (web/host domain)                       | `example.org`
 `mail-domain`    | String | The public email domain for queue addresses, when it differs from the host `fqdn` (e.g. `example.org` while the site is `support.example.org`). Mail to either domain is accepted. | `fqdn`
+`web-port`       | Integer| Sets RT's `$WebPort`. Needed when TLS terminates upstream (e.g. HAProxy) and RT serves plain HTTP: set `443` so RT treats itself as HTTPS, otherwise it assumes `http://<fqdn>:80` and rejects HTTPS form posts with a "possible cross-site request forgery" error. | RT default (`80`)
+`web-base-url`   | String | Sets RT's `$WebBaseURL` explicitly. Only needed when the public URL isn't derivable from `fqdn` + `web-port` (a different public host, a `WebPath` prefix, etc.); otherwise RT derives it. | derived
 `user`           | String | The user account that is responsible for being the default email | `support`
 `failed-email`   | String | Address that mail RT fails to process is forwarded to        | `root`
 `forward-email`  | String | If set, a copy of incoming queue mail is forwarded off-box to this address (e.g. a Google Workspace archive mailbox). | nil
