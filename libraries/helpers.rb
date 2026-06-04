@@ -75,13 +75,36 @@ module OslRT
         domain_re = domains.map { |d| d.gsub('.', '\\.') }.join('|')
         config_options['$RTAddressRegexp'] = "^((#{rt_emails.join('|')})(-comment)?@(#{domain_re}))$"
 
+        # RT runs under apache, so by default outgoing mail's envelope sender is
+        # apache@<fqdn> and bounces dead-end at the local apache/root mailbox. Use
+        # each queue's correspond address as the envelope sender instead so bounces
+        # return to a real RT address. Overridable via 'extra-config' (merged below).
+        config_options['$SetOutgoingMailFrom'] = 1
+
         # Merge any raw RT options provided in the data bag (e.g. '$Timezone',
         # '$DefaultQueue', '%FullTextSearch'). These are emitted verbatim by
         # parse_config, so the keys must be valid RT config names.
         config_options.merge!(rt_config['extra-config']) if rt_config['extra-config']
 
-        # Since this is recipe-driven, go straight to parsing the config options, then return the final config file.
-        parse_config(config_options)
+        # Since this is recipe-driven, go straight to parsing the config options,
+        # then append the drop-in loader and return the final config file.
+        parse_config(config_options) + osl_rt_siteconfig_loader
+      end
+
+      # Trailing stanza appended to RT_SiteConfig.pm: load any *.pm dropped into
+      # RT_SiteConfig.d (in sorted order) AFTER the options above, so a wrapping
+      # cookbook can supply config that parse_config can't express -- notably
+      # nested hashrefs like $ExternalSettings (RT::Authen::ExternalAuth) or
+      # $ServiceAgreements (RT::Extension::SLA). The closing `1;` keeps the
+      # require truthy even when the glob matches nothing.
+      def osl_rt_siteconfig_loader
+        <<~PERL
+
+          # Drop-in site configuration (managed by wrapping cookbooks). Loaded last
+          # so these files can override anything set above.
+          do $_ for sort glob('/opt/rt/etc/RT_SiteConfig.d/*.pm');
+          1;
+        PERL
       end
 
       # The public email domain, defaulting to the host fqdn when unset

@@ -105,6 +105,19 @@ describe 'osl-rt::default' do
         )
       end
 
+      # Drop-in config dir + the loader that sources it from RT_SiteConfig.pm
+      it do
+        is_expected.to create_directory('/opt/rt/etc/RT_SiteConfig.d').with(
+          group: 'apache',
+          mode: '0750'
+        )
+      end
+
+      it do
+        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+          .with_content("do $_ for sort glob('/opt/rt/etc/RT_SiteConfig.d/*.pm');")
+      end
+
       # RT Site Config generated content
       it do
         is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
@@ -123,6 +136,10 @@ describe 'osl-rt::default' do
           "Set($RTAddressRegexp, '^((advertising|backend|board|devops|frontend|support)(-comment)?@(example\\.org))$');"
         )
       end
+
+      # RT runs under apache; use the queue address as the envelope sender so
+      # bounces don't dead-end at the local apache/root mailbox.
+      it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($SetOutgoingMailFrom, 1);') }
 
       # REST2/Authen::Token are plugins on RT 4.4 (EL8/9) but core on RT 5 (EL10+).
       if p[:version].to_i >= 10
@@ -225,6 +242,15 @@ describe 'osl-rt::default' do
       it do
         is_expected.to create_user('support').with(
           manage_home: true
+        )
+      end
+
+      # procmail's MAILDIR ($HOME/Mail) must exist or local delivery logs errors.
+      it do
+        is_expected.to create_directory('/home/support/Mail').with(
+          owner: 'support',
+          group: 'support',
+          mode: '0700'
         )
       end
 

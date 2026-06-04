@@ -72,6 +72,16 @@ end
   user mail_user do
     manage_home true
   end
+
+  # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
+  # doesn't fail to write its logfile ("Error while writing to ./from"). The
+  # mailgate pipe runs either way, but without this every delivery logs an error.
+  mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
+  directory "#{mail_home}/Mail" do
+    owner mail_user
+    group mail_user
+    mode '0700'
+  end
 end
 
 # User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail
@@ -99,6 +109,14 @@ file '/opt/rt/etc/RT_SiteConfig.pm' do
   mode '0640'
   sensitive true
   notifies :reload, 'apache2_service[osuosl]'
+end
+
+# Drop-in directory for additional site config, loaded by the do-glob appended to
+# RT_SiteConfig.pm above. A wrapping cookbook drops *.pm files here for config the
+# data-bag-driven generator can't express (e.g. external auth / SLA hashrefs).
+directory '/opt/rt/etc/RT_SiteConfig.d' do
+  group 'apache'
+  mode '0750'
 end
 
 # Optional custom logo, fetched into RT's static images dir; $LogoURL is set in
