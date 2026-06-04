@@ -141,6 +141,9 @@ describe 'osl-rt::default' do
       # bounces don't dead-end at the local apache/root mailbox.
       it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($SetOutgoingMailFrom, 1);') }
 
+      # No web-port/web-base-url in this data bag -> RT keeps its own defaults.
+      it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($WebPort,') }
+
       # REST2/Authen::Token are plugins on RT 4.4 (EL8/9) but core on RT 5 (EL10+).
       if p[:version].to_i >= 10
         it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
@@ -442,6 +445,39 @@ describe 'osl-rt::default' do
 
   # RT user not among queue emails: still self-aliased so its mailbox gets mail
   # (overrides the system "support: postmaster" default).
+  context 'with a web port and base url' do
+    cached(:chef_run) do
+      ChefSpec::SoloRunner.new(ALMA_9) do |node|
+        node.default['osl-rt']['data-bag'] = 'default'
+      end.converge(described_recipe)
+    end
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'web-port': 443,
+                                                                    'web-base-url': 'https://support.example.org',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    # Behind a TLS-terminating proxy: tell RT its real scheme/port so the CSRF
+    # Referer check passes.
+    it do
+      is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+        .with_content('Set($WebPort, 443);')
+        .with_content("Set($WebBaseURL, 'https://support.example.org');")
+    end
+  end
+
   context 'with the RT user not among the queue emails' do
     cached(:chef_run) do
       ChefSpec::SoloRunner.new(ALMA_9) do |node|
