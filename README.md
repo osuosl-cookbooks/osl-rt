@@ -28,13 +28,20 @@ deployments, override it on the node:
 node.default['osl-apache']['mod_remoteip']['trusted_proxy'] = %w(10.0.0.1)
 ```
 
-## Attributes
+## Usage
 
-Do **NOT** set the configuration in the attributes, instead use data bags.
+osl-rt is resource-first: declare the [`osl_request_tracker`](#resources)
+resource. The resource name is the site's fqdn; the rest of the configuration
+lives in the `request-tracker` data bag (selected with `data_bag`). Do **NOT**
+put configuration in node attributes.
 
-Name       | Type   | Description                                                            | Default
------------|--------|------------------------------------------------------------------------|---------
-`data-bag` | String | The name of the databag item. The data bag is always `request-tracker` | nil
+```ruby
+# Deploy RT for requests.openpowerfoundation.org, reading the rest of the
+# config from request-tracker/requests.
+osl_request_tracker 'requests.openpowerfoundation.org' do
+  data_bag 'requests'
+end
+```
 
 ## Data Bag Attributes
 
@@ -43,7 +50,7 @@ Name             | Type   | Description                                         
 `db-username`    | String | The username of the DB user                                  | nil
 `db-password`    | String | The password of the DB user                                  | nil
 `root-password`  | String | The password used for the root account on RT                 | nil
-`fqdn`           | String | The FQDN of the site (web/host domain)                       | `example.org`
+`fqdn`           | String | **Set by the `osl_request_tracker` resource name**, not the data bag (any `fqdn` key here is ignored). The site's web/host domain. | resource name
 `mail-domain`    | String | The public email domain for queue addresses, when it differs from the host `fqdn` (e.g. `example.org` while the site is `support.example.org`). Mail to either domain is accepted. | `fqdn`
 `web-port`       | Integer| Sets RT's `$WebPort`. Needed when TLS terminates upstream (e.g. HAProxy) and RT serves plain HTTP: set `443` so RT treats itself as HTTPS, otherwise it assumes `http://<fqdn>:80` and rejects HTTPS form posts with a "possible cross-site request forgery" error. | RT default (`80`)
 `web-base-url`   | String | Sets RT's `$WebBaseURL` explicitly. Only needed when the public URL isn't derivable from `fqdn` + `web-port` (a different public host, a `WebPath` prefix, etc.); otherwise RT derives it. | derived
@@ -71,7 +78,6 @@ Name             | Type   | Description                                         
     "host": "localhost",
     "name": "rt"
   },
-  "fqdn": "support.example.org",
   "mail-domain": "example.org",
   "user": "support",
   "failed-email": "systems@example.org",
@@ -129,10 +135,23 @@ upgrade. See [docs/migration.md](docs/migration.md) for the full details, the
 
 ## Resources
 
-## Recipes
+### `osl_request_tracker`
 
-### osl-rt::default
-Deploys an RT web service on the given system, using the provided attributes
+Deploys an RT web service on the node (Apache + RT, the database schema, procmail,
+and a `osl_postfix_server 'default'` mail server). The resource name is the site's
+fqdn; the rest of the config comes from a `request-tracker` data bag item (see
+[Data Bag Attributes](#data-bag-attributes)).
+
+Property   | Type   | Description                                                                                 | Default
+-----------|--------|---------------------------------------------------------------------------------------------|--------------
+`fqdn`     | String | The site's fqdn (the resource name). Authoritative — overrides any `fqdn` in the data bag.   | resource name
+`data_bag` | String | Name of the item in the `request-tracker` data bag holding the rest of the config.          | `default`
+
+```ruby
+osl_request_tracker 'requests.openpowerfoundation.org' do
+  data_bag 'requests'
+end
+```
 
 ## Contributing
 

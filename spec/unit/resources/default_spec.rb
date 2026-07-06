@@ -18,16 +18,35 @@
 
 require_relative '../../spec_helper'
 
-describe 'osl-rt::default' do
+# osl-rt is resource-first. All postfix configuration is forwarded to an
+# `osl_postfix_server 'default'` resource, whose inner `postfix 'default'` renders
+# main.cf / /etc/aliases / /etc/postfix/{access,transport} via a delayed action
+# that ChefSpec does not fire (and we only step_into :osl_request_tracker). So the
+# rendered postfix *files* are asserted in kitchen (test/integration); here we
+# assert the properties handed to osl_postfix_server instead.
+describe 'osl_request_tracker' do
+  step_into :osl_request_tracker
+
+  # Inject the resource into a blank base recipe. The name is the site fqdn
+  # ('example.org'); the rest of the config comes from the stubbed
+  # request-tracker/default data bag item (data_bag defaults to 'default').
+  def converge_rt(runner)
+    runner.converge('osl-rt-test::blank') do
+      recipe = Chef::Recipe.new('test', '_test', runner.run_context)
+      recipe.instance_exec do
+        osl_request_tracker 'example.org'
+      end
+    end
+  end
+
   ALL_PLATFORMS.each do |p|
     context "#{p[:platform]} #{p[:version]}" do
-      cached(:chef_run) do
-        ChefSpec::SoloRunner.new(p) do |node|
-          node.default['osl-rt']['data-bag'] = 'default'
-        end.converge(described_recipe)
-      end
+      platform p[:platform], p[:version]
+      # EL10 dropped Berkeley DB ('hash') from postfix in favor of 'lmdb'.
+      db_type = p[:version].to_i >= 10 ? 'lmdb' : 'hash'
 
-      # Stubbed commands
+      cached(:chef_run) { converge_rt(chef_runner) }
+
       before do
         stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
         # Simulate a fresh database so the one-time DB/queue setup runs.
@@ -86,19 +105,85 @@ describe 'osl-rt::default' do
                                                                     })
       end
 
-      # Recipes dependencies
+      it 'converges successfully' do
+        expect { chef_run }.to_not raise_error
+      end
+
+      # Recipe dependencies pulled in by the resource
       %w(
         osl-apache osl-apache::mod_remoteip osl-apache::mod_perl
         osl-mysql::client yum-osuosl perl
-        osl-postfix::server postfix::aliases
-        postfix::access postfix::transports
       ).each do |r|
-        it { is_expected.to include_recipe(r) }
+        it { expect(chef_run).to include_recipe(r) }
+      end
+
+      # Postfix: all config flows through a single osl_postfix_server 'default'.
+      it do
+        expect(chef_run).to create_osl_postfix_server('default').with(
+          use_access_maps: true,
+          use_transport_maps: true,
+          access: {
+            '140.211.166.133' => 'OK',
+            '140.211.166.136' => 'OK',
+            '140.211.166.137' => 'OK',
+            '140.211.166.138' => 'OK',
+          },
+          main_settings: {
+            'home_mailbox' => 'Mail/',
+            'mailbox_command' => '/usr/bin/procmail',
+            'mailbox_size_limit' => '0',
+            'message_size_limit' => '102400000',
+            'transport_maps' => "#{db_type}:/etc/postfix/transport",
+            'mydestination' => '$myhostname, localhost.$mydomain, localhost, example.org',
+            'mydomain' => 'example.org',
+          }
+        )
+      end
+
+      # Per-queue + self aliases (osl_postfix_server seeds the OSL system aliases
+      # underneath these at converge; not visible here).
+      it do
+        expect(chef_run).to create_osl_postfix_server('default').with(
+          aliases: {
+            'support' => 'support',
+            'support-comment' => 'support',
+            'frontend' => 'support',
+            'frontend-comment' => 'support',
+            'backend' => 'support',
+            'backend-comment' => 'support',
+            'devops' => 'support',
+            'devops-comment' => 'support',
+            'advertising' => 'support',
+            'advertising-comment' => 'support',
+            'board' => 'support',
+            'board-comment' => 'support',
+          }
+        )
+      end
+
+      # Per-queue transports, for every delivery domain (here just the fqdn).
+      it do
+        expect(chef_run).to create_osl_postfix_server('default').with(
+          transports: {
+            'support@example.org' => 'local:$myhostname',
+            'support-comment@example.org' => 'local:$myhostname',
+            'frontend@example.org' => 'local:$myhostname',
+            'frontend-comment@example.org' => 'local:$myhostname',
+            'backend@example.org' => 'local:$myhostname',
+            'backend-comment@example.org' => 'local:$myhostname',
+            'devops@example.org' => 'local:$myhostname',
+            'devops-comment@example.org' => 'local:$myhostname',
+            'advertising@example.org' => 'local:$myhostname',
+            'advertising-comment@example.org' => 'local:$myhostname',
+            'board@example.org' => 'local:$myhostname',
+            'board-comment@example.org' => 'local:$myhostname',
+          }
+        )
       end
 
       # RT Site Config
       it do
-        is_expected.to create_file('/opt/rt/etc/RT_SiteConfig.pm').with(
+        expect(chef_run).to create_file('/opt/rt/etc/RT_SiteConfig.pm').with(
           group: 'apache',
           mode: '0640',
           sensitive: true
@@ -107,56 +192,57 @@ describe 'osl-rt::default' do
 
       # Drop-in config dir + the loader that sources it from RT_SiteConfig.pm
       it do
-        is_expected.to create_directory('/opt/rt/etc/RT_SiteConfig.d').with(
+        expect(chef_run).to create_directory('/opt/rt/etc/RT_SiteConfig.d').with(
           group: 'apache',
           mode: '0750'
         )
       end
 
       it do
-        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+        expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm')
           .with_content("do $_ for sort glob('/opt/rt/etc/RT_SiteConfig.d/*.pm');")
       end
 
       # RT Site Config generated content
       it do
-        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+        expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
           "Set($CorrespondAddress, 'support@example.org');"
         )
       end
 
       it do
-        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+        expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
           "Set($CommentAddress, 'support-comment@example.org');"
         )
       end
 
       it do
-        is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+        expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
           "Set($RTAddressRegexp, '^((advertising|backend|board|devops|frontend|support)(-comment)?@(example\\.org))$');"
         )
       end
 
       # RT runs under apache; use the queue address as the envelope sender so
       # bounces don't dead-end at the local apache/root mailbox.
-      it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($SetOutgoingMailFrom, 1);') }
+      it { expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($SetOutgoingMailFrom, 1);') }
 
       # No web-port/web-base-url in this data bag -> RT keeps its own defaults.
-      it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($WebPort,') }
+      it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($WebPort,') }
 
       # REST2/Authen::Token are plugins on RT 4.4 (EL8/9) but core on RT 5 (EL10+).
       if p[:version].to_i >= 10
-        it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
-        it { is_expected.to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Authen::Token');") }
+        it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
+        it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Authen::Token');") }
       else
-        it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
-        it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Authen::Token');") }
+        it { expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Extension::REST2');") }
+        it { expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Plugin('RT::Authen::Token');") }
       end
 
       # Root Account Config
       it do
-        is_expected.to create_template('/root/.rtrc').with(
+        expect(chef_run).to create_template('/root/.rtrc').with(
           source: 'rtrc.erb',
+          cookbook: 'osl-rt',
           mode: '0600',
           variables: { root_pass: 'my-epic-rt', domain: 'rtlocal' },
           sensitive: true
@@ -165,14 +251,14 @@ describe 'osl-rt::default' do
 
       # Add RT to sbin PATH
       it do
-        is_expected.to create_link('/usr/local/sbin/rt').with(
+        expect(chef_run).to create_link('/usr/local/sbin/rt').with(
           to: '/opt/rt/bin/rt'
         )
       end
 
       # RT Database Initalization (guarded by DB state, not a marker file)
       it do
-        is_expected.to run_execute('init-db-rt').with(
+        expect(chef_run).to run_execute('init-db-rt').with(
           sensitive: true,
           command: <<~EOC
         /opt/rt/sbin/rt-setup-database \
@@ -205,15 +291,16 @@ describe 'osl-rt::default' do
       end
 
       # The upgrade step is opt-in and absent unless 'db-upgrade' is set
-      it { is_expected.to_not run_execute('upgrade-db-rt') }
+      it { expect(chef_run).to_not run_execute('upgrade-db-rt') }
 
       # Apache Configuration Website
       it do
-        is_expected.to create_apache_app('example.org').with(
+        expect(chef_run).to create_apache_app('example.org').with(
           directory: '/opt/rt/share/html',
           include_config: true,
           include_template: true,
           include_name: 'rt',
+          cookbook_include: 'osl-rt',
           include_params: { 'domain': 'example.org' },
           server_aliases: ['rtlocal']
         )
@@ -229,7 +316,7 @@ describe 'osl-rt::default' do
           'Marketing Team': 'advertising',
           'The Board Of Directors': 'board',
         }.each do |pt, email|
-          is_expected.to run_execute("Creating RT queue for #{pt}").with(
+          expect(chef_run).to run_execute("Creating RT queue for #{pt}").with(
             sensitive: true,
             command: <<~EOC
         HOSTALIASES=/root/.rthost \
@@ -243,14 +330,14 @@ describe 'osl-rt::default' do
 
       # Support mail account
       it do
-        is_expected.to create_user('support').with(
+        expect(chef_run).to create_user('support').with(
           manage_home: true
         )
       end
 
       # procmail's MAILDIR ($HOME/Mail) must exist or local delivery logs errors.
       it do
-        is_expected.to create_directory('/home/support/Mail').with(
+        expect(chef_run).to create_directory('/home/support/Mail').with(
           owner: 'support',
           group: 'support',
           mode: '0700'
@@ -259,7 +346,7 @@ describe 'osl-rt::default' do
 
       # Support Procmail setup
       it do
-        is_expected.to create_template('/home/support/.procmailrc').with(
+        expect(chef_run).to create_template('/home/support/.procmailrc').with(
           source: 'support.procmailrc.erb',
           cookbook: 'osl-rt',
           owner: 'support',
@@ -283,20 +370,20 @@ describe 'osl-rt::default' do
       end
 
       # No forwarding user or logo configured by default
-      it { is_expected.to_not create_template('/home/support-gmail/.procmailrc') }
-      it { is_expected.to_not create_user('support-gmail') }
+      it { expect(chef_run).to_not create_template('/home/support-gmail/.procmailrc') }
+      it { expect(chef_run).to_not create_user('support-gmail') }
       it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to be_nil }
 
       # Default Procmail setup
       it do
-        is_expected.to create_file('/etc/procmailrc').with(
+        expect(chef_run).to create_file('/etc/procmailrc').with(
           content: "DEFAULT=$HOME/Mail/\nPATH=/usr/local/bin:/usr/bin:/bin\nMAILDIR=$HOME/Mail/\nLOGFILE=$MAILDIR/from"
         )
       end
 
       # Global Mutt Configuration
       it do
-        is_expected.to create_cookbook_file('/etc/Muttrc.local').with(
+        expect(chef_run).to create_cookbook_file('/etc/Muttrc.local').with(
           source: 'rt/Muttrc.local',
           cookbook: 'osl-rt'
         )
@@ -306,11 +393,9 @@ describe 'osl-rt::default' do
 
   # Optional mail forwarding + branding (two-user split, off-box forward, logo)
   context 'with forwarding and branding' do
-    cached(:chef_run) do
-      ChefSpec::SoloRunner.new(ALMA_9) do |node|
-        node.default['osl-rt']['data-bag'] = 'default'
-      end.converge(described_recipe)
-    end
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
@@ -335,9 +420,9 @@ describe 'osl-rt::default' do
     end
 
     # Dedicated forward user is created and its procmailrc forwards off-box
-    it { is_expected.to create_user('support-gmail').with(manage_home: true) }
+    it { expect(chef_run).to create_user('support-gmail').with(manage_home: true) }
     it do
-      is_expected.to create_template('/home/support-gmail/.procmailrc').with(
+      expect(chef_run).to create_template('/home/support-gmail/.procmailrc').with(
         source: 'forward.procmailrc.erb',
         cookbook: 'osl-rt',
         owner: 'support-gmail',
@@ -348,23 +433,31 @@ describe 'osl-rt::default' do
         }
       )
     end
-    it { is_expected.to render_file('/home/support-gmail/.procmailrc').with_content('! archive@gapps.example.org') }
+    it { expect(chef_run).to render_file('/home/support-gmail/.procmailrc').with_content('! archive@gapps.example.org') }
 
     # In split mode the RT user does NOT also CC the copy
     it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to be_nil }
 
     # Queue alias delivers to both the RT user and the forward user
-    it { is_expected.to render_file('/etc/aliases').with_content('support: support, support-gmail') }
+    it do
+      expect(chef_run).to create_osl_postfix_server('default').with(
+        aliases: {
+          'support' => 'support, support-gmail',
+          'support-gmail' => 'support-gmail',
+          'support-comment' => 'support, support-gmail',
+        }
+      )
+    end
 
     # Logo is fetched and wired into the RT config
-    it { is_expected.to create_directory('/opt/rt/share/static/images').with(recursive: true) }
+    it { expect(chef_run).to create_directory('/opt/rt/share/static/images').with(recursive: true) }
     it do
-      is_expected.to create_remote_file('/opt/rt/share/static/images/logo.png').with(
+      expect(chef_run).to create_remote_file('/opt/rt/share/static/images/logo.png').with(
         source: 'https://example.org/img/logo.png'
       )
     end
     it do
-      is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+      expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm')
         .with_content("Set($LogoURL, '/static/images/logo.png');")
         .with_content("Set($LogoLinkURL, 'https://support.example.org/');")
         .with_content("Set($LogoAltText, 'Example Support');")
@@ -373,11 +466,9 @@ describe 'osl-rt::default' do
 
   # Single-user CC-forward (forward-email without forward-user)
   context 'with single-user forwarding' do
-    cached(:chef_run) do
-      ChefSpec::SoloRunner.new(ALMA_9) do |node|
-        node.default['osl-rt']['data-bag'] = 'default'
-      end.converge(described_recipe)
-    end
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
@@ -396,18 +487,16 @@ describe 'osl-rt::default' do
     end
 
     # The RT user CCs a copy off-box; no separate forward user exists
-    it { is_expected.to_not create_user('support-gmail') }
+    it { expect(chef_run).to_not create_user('support-gmail') }
     it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to eq('archive@gapps.example.org') }
-    it { is_expected.to render_file('/home/support/.procmailrc').with_content('! archive@gapps.example.org') }
+    it { expect(chef_run).to render_file('/home/support/.procmailrc').with_content('! archive@gapps.example.org') }
   end
 
   # Opt-in upgrade: 'db-upgrade' = the DB's RT version, passed as --upgrade-from.
   context 'with db-upgrade set to a version' do
-    cached(:chef_run) do
-      ChefSpec::SoloRunner.new(ALMA_9) do |node|
-        node.default['osl-rt']['data-bag'] = 'default'
-      end.converge(described_recipe)
-    end
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
@@ -426,7 +515,7 @@ describe 'osl-rt::default' do
     end
 
     it do
-      is_expected.to run_execute('upgrade-db-rt').with(
+      expect(chef_run).to run_execute('upgrade-db-rt').with(
         creates: '/opt/rt/chef/upgrade-db-rt',
         cwd: '/opt/rt',
         sensitive: true,
@@ -443,14 +532,12 @@ describe 'osl-rt::default' do
     end
   end
 
-  # RT user not among queue emails: still self-aliased so its mailbox gets mail
-  # (overrides the system "support: postmaster" default).
+  # Behind a TLS-terminating proxy: tell RT its real scheme/port so the CSRF
+  # Referer check passes.
   context 'with a web port and base url' do
-    cached(:chef_run) do
-      ChefSpec::SoloRunner.new(ALMA_9) do |node|
-        node.default['osl-rt']['data-bag'] = 'default'
-      end.converge(described_recipe)
-    end
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
@@ -469,21 +556,19 @@ describe 'osl-rt::default' do
                                                                   })
     end
 
-    # Behind a TLS-terminating proxy: tell RT its real scheme/port so the CSRF
-    # Referer check passes.
     it do
-      is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+      expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm')
         .with_content('Set($WebPort, 443);')
         .with_content("Set($WebBaseURL, 'https://support.example.org');")
     end
   end
 
+  # RT user not among queue emails: still self-aliased so its mailbox gets mail
+  # (overrides the system "support: postmaster" default).
   context 'with the RT user not among the queue emails' do
-    cached(:chef_run) do
-      ChefSpec::SoloRunner.new(ALMA_9) do |node|
-        node.default['osl-rt']['data-bag'] = 'default'
-      end.converge(described_recipe)
-    end
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
@@ -500,18 +585,23 @@ describe 'osl-rt::default' do
                                                                   })
     end
 
-    it { is_expected.to render_file('/etc/aliases').with_content('support: support') }
-    it { is_expected.to render_file('/etc/aliases').with_content('imported: support') }
+    it do
+      expect(chef_run).to create_osl_postfix_server('default').with(
+        aliases: {
+          'support' => 'support',
+          'imported' => 'support',
+          'imported-comment' => 'support',
+        }
+      )
+    end
   end
 
   # PostgreSQL backend (db.type = Pg): DBD::Pg + psql client instead of the
   # mariadb client, and the DB guards/commands use psql.
   context 'with a postgresql backend' do
-    cached(:chef_run) do
-      ChefSpec::SoloRunner.new(ALMA_9) do |node|
-        node.default['osl-rt']['data-bag'] = 'default'
-      end.converge(described_recipe)
-    end
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
@@ -535,11 +625,11 @@ describe 'osl-rt::default' do
     end
 
     # Postgres pulls in the Perl driver + psql client, not the mariadb client.
-    it { is_expected.to install_package(%w(perl-DBD-Pg postgresql)) }
-    it { is_expected.to_not include_recipe('osl-mysql::client') }
+    it { expect(chef_run).to install_package(%w(perl-DBD-Pg postgresql)) }
+    it { expect(chef_run).to_not include_recipe('osl-mysql::client') }
 
     # RT is pointed at the Postgres backend.
-    it { is_expected.to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Set($DatabaseType, 'Pg');") }
+    it { expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("Set($DatabaseType, 'Pg');") }
 
     # Root password is set via psql on a fresh init.
     it do

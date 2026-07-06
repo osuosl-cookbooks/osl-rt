@@ -73,15 +73,11 @@ module OslRT
           config_options['$LogoAltText'] = logo['alt'] if logo['alt']
         end
 
-        # Self-alias each mail user so its mailbox (and ~/.procmailrc) gets RT mail,
-        # overriding any system default like "support: postmaster". (When the user is
-        # also a queue email, init_emails overrides this with the queue alias target.)
-        mail_users = [rt_config['user'], rt_config['forward-user']].compact
-        mail_users.each { |u| node.force_override['postfix']['aliases'][u] = u }
-
-        # Queue emails for every delivery domain. With a 'forward-user', queue mail
-        # goes to both the RT user (feeds rt-mailgate) and that user (forwards a copy).
-        rt_emails = init_emails(rt_config['queues'], domains, mail_users.join(', '))
+        # Queue emails (sorted, non-nil) drive $RTAddressRegexp below. The postfix
+        # aliases/transports that actually route this mail are built separately by
+        # osl_rt_postfix_aliases / osl_rt_postfix_transports and handed to the
+        # osl_postfix_server resource in osl_request_tracker.
+        rt_emails = osl_rt_emails(rt_config)
 
         # Match "<email>" and "<email>-comment" at any of our delivery domains.
         # The joined emails MUST be wrapped in their own group, otherwise the
@@ -129,6 +125,57 @@ module OslRT
       # All domains mail may be delivered to locally (host fqdn + public domain)
       def osl_rt_domains(rt_config)
         [rt_config['fqdn'], osl_rt_mail_domain(rt_config)].uniq
+      end
+
+      # Mail users that receive RT mail: the RT user, plus the optional forward
+      # user (the two-user split, where a dedicated user forwards a copy off-box).
+      def osl_rt_mail_users(rt_config)
+        [rt_config['user'], rt_config['forward-user']].compact
+      end
+
+      # The queue emails (sorted, non-nil) used to build $RTAddressRegexp.
+      def osl_rt_emails(rt_config)
+        rt_config['queues'].values.compact.sort
+      end
+
+      # Postfix aliases handed to osl_postfix_server. Self-alias each mail user so
+      # its mailbox (and ~/.procmailrc) gets RT mail, overriding any system default
+      # like "support: postmaster"; then map every queue email (and its -comment
+      # variant) to the mail user(s). A queue email that is also a mail user is
+      # overridden by the queue mapping (which fans out to the forward user too).
+      # osl_postfix_server seeds the OSL system aliases underneath these.
+      def osl_rt_postfix_aliases(rt_config)
+        mail_users = osl_rt_mail_users(rt_config)
+        target = mail_users.join(', ')
+        aliases = {}
+        mail_users.each { |u| aliases[u] = u }
+        rt_config['queues'].each_value do |email|
+          next if email.nil?
+          aliases[email] = target
+          aliases["#{email}-comment"] = target
+        end
+        aliases
+      end
+
+      # Postfix transports handed to osl_postfix_server: route every queue email
+      # (and its -comment variant) at each delivery domain to local delivery, so
+      # rt-mailgate/procmail handle it.
+      def osl_rt_postfix_transports(rt_config, domains)
+        transports = {}
+        rt_config['queues'].each_value do |email|
+          next if email.nil?
+          domains.each do |domain|
+            transports["#{email}@#{domain}"] = 'local:$myhostname'
+            transports["#{email}-comment@#{domain}"] = 'local:$myhostname'
+          end
+        end
+        transports
+      end
+
+      # Postfix map db type for transport_maps. EL10 dropped Berkeley DB ('hash')
+      # from postfix in favor of 'lmdb'; older platforms keep 'hash'.
+      def osl_rt_postfix_db_type
+        node['platform_version'].to_i >= 10 ? 'lmdb' : 'hash'
       end
 
       # Shell guard (for not_if/only_if) that succeeds when the SQL SELECT returns
@@ -305,23 +352,6 @@ module OslRT
                        end
         end
         strConfig
-      end
-
-      # Sets up the email queues for postfix. And returns the emails for RT configuration.
-      # Transports are created for every delivery domain; aliases are domain-agnostic.
-      def init_emails(queues, domains, strdefault)
-        rt_emails = []
-        queues.each_value do |email|
-          next if email.nil?
-          node.force_override['postfix']['aliases'][email] = strdefault
-          node.force_override['postfix']['aliases']["#{email}-comment"] = strdefault
-          domains.each do |strdomain|
-            node.force_override['postfix']['transports']["#{email}@#{strdomain}"] = 'local:$myhostname'
-            node.force_override['postfix']['transports']["#{email}-comment@#{strdomain}"] = 'local:$myhostname'
-          end
-          rt_emails.push(email)
-        end
-        rt_emails.sort
       end
     end
   end

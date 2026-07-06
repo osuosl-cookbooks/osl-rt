@@ -3,7 +3,6 @@
   "db-password": "rt-password",
   "root-password": "my-epic-rt",
   "user": "support",
-  "fqdn": "support.example.org",
   "mail-domain": "example.org",
   "forward-email": "root@example.org",
   "forward-user": "support-gmail",
