@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+3.0.0 (2026-08-04)
+------------------
+- Convert to a resource-first cookbook for osl-postfix 3.x / postfix 7.x
+
 2.2.1 (2026-06-04)
 ------------------
 - Add web-port / web-base-url data bag options
