@@ -1,6 +1,7 @@
 # Two-domain + forwarding + branding suite (mail-domain != fqdn, forward-user
 # split, logo). Sets its own data bag so the suite is self-contained.
-node.default['osl-rt']['data-bag'] = 'two-domain'
+node.default['osl-rt-test']['site'] = 'support.example.org'
+node.default['osl-rt-test']['data-bag'] = 'two-domain'
 
 # Stage the logo locally so osl-rt's remote_file fetch needs no network (the data
 # bag points at this file:// path); declared before osl-rt converges below.

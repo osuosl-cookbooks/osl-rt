@@ -11,8 +11,12 @@ osl_mysql_test 'rt' do
   password 'rt-password'
 end
 
-# Request Tracker
-include_recipe 'osl-rt'
+# Request Tracker. The site fqdn and data-bag item are selected by osl-rt-test
+# attributes (default 'example.org' / 'default'); the two-domain suite overrides
+# them and reuses this recipe.
+osl_request_tracker node['osl-rt-test']['site'] do
+  data_bag node['osl-rt-test']['data-bag']
+end
 
 # Exercise the RT_SiteConfig.d drop-in: a snippet dropped here must be picked up
 # by RT's own config loader (asserted in the inspec via RT::LoadConfig). $Timezone

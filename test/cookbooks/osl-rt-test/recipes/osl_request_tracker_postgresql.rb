@@ -1,6 +1,6 @@
 # PostgreSQL suite: same as the standard suite but backed by Postgres. Uses its
 # own data bag (db.type = Pg) so it is self-contained alongside the MySQL suite.
-node.default['osl-rt']['data-bag'] = 'postgresql'
+node.default['osl-rt-test']['data-bag'] = 'postgresql'
 
 # Download mailx/s-nail for testing the email queue later
 if node['platform_version'].to_i <= 8
@@ -17,7 +17,9 @@ osl_postgresql_test 'rt' do
 end
 
 # Request Tracker
-include_recipe 'osl-rt'
+osl_request_tracker node['osl-rt-test']['site'] do
+  data_bag node['osl-rt-test']['data-bag']
+end
 
 # Exercise the RT_SiteConfig.d drop-in, same as the MySQL suite.
 file '/opt/rt/etc/RT_SiteConfig.d/99-dropin-test.pm' do

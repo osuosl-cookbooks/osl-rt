@@ -2,7 +2,7 @@
 # Exercises the DB-state guards (init/existing queue/root preserved), creation of
 # the missing "Migrated Queue", and db-upgrade. The seed fixture
 # (files/rt-seed.sql.gz, RT 4.4.4) and regeneration steps are in docs/migration.md.
-node.default['osl-rt']['data-bag'] = 'migration'
+node.default['osl-rt-test']['data-bag'] = 'migration'
 
 if node['platform_version'].to_i <= 8
   package %w(mailx jq)
@@ -29,7 +29,9 @@ execute 'import-rt-seed' do
 end
 
 # osl-rt sees a populated DB: skips init/root, upgrades, creates the missing queue.
-include_recipe 'osl-rt'
+osl_request_tracker node['osl-rt-test']['site'] do
+  data_bag node['osl-rt-test']['data-bag']
+end
 
 # Restart Apache to clear the first-run race (same as the standard suite).
 service 'httpd' do
