@@ -13,7 +13,7 @@ depends           'osl-mysql'
 depends           'osl-postgresql'
 depends           'osl-postfix'
 depends           'yum-osuosl'
-depends           'perl', '~> 1.2.2'
+depends           'perl', '< 9.0.0'
 
 supports          'almalinux', '~> 8.0'
 supports          'almalinux', '~> 9.0'
