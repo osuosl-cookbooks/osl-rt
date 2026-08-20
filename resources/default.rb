@@ -286,8 +286,18 @@ action :create do
   postfix_transports = osl_rt_postfix_transports(rt_config, domains)
   transport_maps = "#{osl_rt_postfix_db_type}:/etc/postfix/transport"
 
+  # local(8) stamps X-Original-To at delivery (procmail dispatches on it) but
+  # does not strip one the sender supplied: a forged header could pick the
+  # dispatch queue or defeat the spam exemption. Have cleanup drop them all;
+  # the real one is stamped after cleanup, at final delivery. regexp maps are
+  # read directly -- no postmap needed.
+  file '/etc/postfix/header_checks' do
+    content "/^X-Original-To:/ IGNORE\n"
+  end
+
   osl_postfix_server 'default' do
     main_settings(
+      'header_checks' => 'regexp:/etc/postfix/header_checks',
       'home_mailbox' => 'Mail/',
       'mailbox_command' => '/usr/bin/procmail',
       'mailbox_size_limit' => '0',

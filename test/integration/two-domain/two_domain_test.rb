@@ -156,6 +156,25 @@ EOC
   its('exit_status') { should eq 0 }
 end
 
+# A sender-supplied X-Original-To must not defeat the abuse exemption (or pick
+# the queue): cleanup strips it before local delivery stamps the real one.
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: spammer@example.net' \
+    'X-Original-To: abuse@example.org' \
+    'To: support@example.org' \
+    'Subject: forged-xoriginalto-test' \
+    'X-Spam-Status: Yes, score=10.0 required=5.0' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'Spam wearing a forged dispatch header.' \
+    | /usr/sbin/sendmail -i -f spammer@example.net support@example.org
+  sleep 5
+  grep -rl forged-xoriginalto-test /home/support/Mail/.Spam/new
+EOC
+  its('exit_status') { should eq 0 }
+end
+
 # An incoming autoresponse files into .AutoReply/ and never reaches rt-mailgate
 describe command <<~EOC do
   printf '%s\\n' \
@@ -177,4 +196,5 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subje
   its('stdout') { should match(/abuse-exemption-test/) }
   its('stdout') { should_not match(/two-domain-spam-test/) }
   its('stdout') { should_not match(/two-domain-autoreply-test/) }
+  its('stdout') { should_not match(/forged-xoriginalto-test/) }
 end

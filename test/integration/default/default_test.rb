@@ -89,6 +89,7 @@ describe file '/usr/local/sbin/rt' do
 end
 
 describe postfix_conf('/etc/postfix/main.cf') do
+  its('header_checks') { should eq 'regexp:/etc/postfix/header_checks' }
   its('home_mailbox') { should eq 'Mail/' }
   its('mydestination') { should eq '$myhostname, localhost.$mydomain, localhost, example.org' }
   its('mailbox_command') { should eq '/usr/bin/procmail' }
@@ -145,6 +146,12 @@ describe file('/etc/postfix/transport') do
   ].each do |line|
     its('content') { should match Regexp.escape line }
   end
+end
+
+# Sender-supplied X-Original-To could pick the dispatch queue or defeat the
+# spam exemption; cleanup strips them all before local delivery stamps the real one.
+describe file('/etc/postfix/header_checks') do
+  its('content') { should match %r{^/\^X-Original-To:/ IGNORE$} }
 end
 
 describe command 'postfix check' do

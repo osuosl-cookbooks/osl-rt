@@ -129,6 +129,7 @@ describe 'osl_request_tracker' do
             '140.211.166.138' => 'OK',
           },
           main_settings: {
+            'header_checks' => 'regexp:/etc/postfix/header_checks',
             'home_mailbox' => 'Mail/',
             'mailbox_command' => '/usr/bin/procmail',
             'mailbox_size_limit' => '0',
@@ -137,6 +138,15 @@ describe 'osl_request_tracker' do
             'mydestination' => '$myhostname, localhost.$mydomain, localhost, example.org',
             'mydomain' => 'example.org',
           }
+        )
+      end
+
+      # Sender-supplied X-Original-To could pick the dispatch queue or defeat
+      # the spam exemption; cleanup strips them all before local delivery
+      # stamps the real one.
+      it do
+        expect(chef_run).to create_file('/etc/postfix/header_checks').with(
+          content: "/^X-Original-To:/ IGNORE\n"
         )
       end
 
