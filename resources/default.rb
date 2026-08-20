@@ -71,11 +71,6 @@ action :create do
   mail_domain = osl_rt_mail_domain(rt_config)
   domains = osl_rt_domains(rt_config)
 
-  # Optional off-box forwarding. 'forward-email' alone: the RT user CCs a copy.
-  # Plus 'forward-user': a dedicated user gets the copy and forwards it (two-user split).
-  forward_email = rt_config['forward-email']
-  forward_user = rt_config['forward-user']
-
   # Root Account
   template '/root/.rtrc' do
     source 'rtrc.erb'
@@ -90,21 +85,19 @@ action :create do
     )
   end
 
-  # RT user always exists; the forward user only with the optional two-user split.
-  [rt_config['user'], forward_user].compact.each do |mail_user|
-    user mail_user do
-      manage_home true
-    end
+  mail_user = rt_config['user']
+  user mail_user do
+    manage_home true
+  end
 
-    # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
-    # doesn't fail to write its logfile ("Error while writing to ./from"). The
-    # mailgate pipe runs either way, but without this every delivery logs an error.
-    mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
-    directory "#{mail_home}/Mail" do
-      owner mail_user
-      group mail_user
-      mode '0700'
-    end
+  # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
+  # doesn't fail to write its logfile ("Error while writing to ./from"). The
+  # mailgate pipe runs either way, but without this every delivery logs an error.
+  mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
+  directory "#{mail_home}/Mail" do
+    owner mail_user
+    group mail_user
+    mode '0700'
   end
 
   # User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail
@@ -247,25 +240,8 @@ action :create do
       internal_domain: rt_config['internal-domain'],
       mail_domain: mail_domain,
       # Where RT-unprocessable mail is forwarded (default local root).
-      error_email: rt_config['failed-email'] || 'root',
-      # CC off-box only in single-user mode; the forward user handles it otherwise.
-      forward_email: forward_user ? nil : forward_email
+      error_email: rt_config['failed-email'] || 'root'
     )
-  end
-
-  # Optional forward user (two-user split): gets a copy of queue mail and forwards it.
-  if forward_user
-    user_home = forward_user == 'root' ? '/root' : "/home/#{forward_user}"
-    template "#{user_home}/.procmailrc" do
-      source 'forward.procmailrc.erb'
-      cookbook 'osl-rt'
-      owner forward_user
-      group forward_user
-      variables(
-        mail_domain: mail_domain,
-        forward_email: forward_email
-      )
-    end
   end
 
   # Set up procmail in the default user's account

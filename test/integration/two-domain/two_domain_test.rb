@@ -1,4 +1,4 @@
-# Verifies the two-domain (mail-domain != fqdn) + forward-user split + logo setup.
+# Verifies the two-domain (mail-domain != fqdn) + logo setup.
 
 describe service('httpd') do
   it { should be_enabled }
@@ -43,31 +43,19 @@ describe file('/opt/rt/share/static/images/osl-rt-test-logo.png') do
   it { should be_file }
 end
 
-# Both mail users exist (two-user split)
-%w(support support-gmail).each do |u|
-  describe user(u) do
-    it { should exist }
-  end
+describe user('support') do
+  it { should exist }
 end
 
-# RT user feeds rt-mailgate for both domains and does NOT forward (the split user does).
+# RT user feeds rt-mailgate for both domains
 describe file('/home/support/.procmailrc') do
   # domain_match group accepts both delivery domains (dots escaped for procmail)
   its('content') { should include 'X-Original-To: support@(support\.example\.org|example\.org)' }
   its('content') { should include '/opt/rt/bin/rt-mailgate --queue "Support" --action correspond --url http://rtlocal' }
-  # In split mode the RT user does NOT forward off-box (that is the forward user)
-  its('content') { should_not match(/^! root@example\.org$/) }
 end
 
-# Forward user forwards a copy off-box
-describe file('/home/support-gmail/.procmailrc') do
-  it { should exist }
-  its('content') { should match(/^! root@example\.org$/) }
-end
-
-# Queue mail is delivered to BOTH the RT user and the forward user
 describe file('/etc/aliases') do
-  its('content') { should match(/^support: support, support-gmail$/) }
+  its('content') { should match(/^support: support$/) }
 end
 
 # Transports exist for every delivery domain
@@ -90,7 +78,7 @@ describe postfix_conf('/etc/postfix/main.cf') do
   end
 end
 
-# Mail round-trip: a ticket to the mail-domain reaches RT through the split.
+# Mail round-trip: a ticket to the mail-domain reaches RT.
 describe command 'echo "Need help with the two-domain setup" | mailx -r root@localhost -s "two-domain-test" support@example.org' do
   its('exit_status') { should eq 0 }
 end

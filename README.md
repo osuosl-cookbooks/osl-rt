@@ -56,8 +56,6 @@ Name             | Type   | Description                                         
 `web-base-url`   | String | Sets RT's `$WebBaseURL` explicitly. Only needed when the public URL isn't derivable from `fqdn` + `web-port` (a different public host, a `WebPath` prefix, etc.); otherwise RT derives it. | derived
 `user`           | String | The user account that is responsible for being the default email | `support`
 `failed-email`   | String | Address that mail RT fails to process is forwarded to        | `root`
-`forward-email`  | String | If set, a copy of incoming queue mail is forwarded off-box to this address (e.g. a Google Workspace archive mailbox). | nil
-`forward-user`   | String | Optional dedicated local user for the forward (two-user split). When set, queue mail is delivered to both the RT `user` (feeds rt-mailgate) and this user (forwards a copy to `forward-email`), so RT processing and the off-box copy don't interfere. Requires `forward-email`. | nil
 `logo`           | Hash   | Optional custom branding. `url` is fetched into RT's static images dir and `$LogoURL` is set to the served path; `link`/`alt` set `$LogoLinkURL`/`$LogoAltText`. Assumes the default (empty) `WebPath`; override `$LogoURL` via `extra-config` otherwise. | nil
 `internal-domain`| String | A workaround required needs a non-sublevel domain name to access the site internally | `rtlocal`
 `db.type`        | String | The database engine, passed to RT as `$DatabaseType`. Use `mysql` for MySQL/MariaDB or `Pg` for PostgreSQL. With `Pg` the cookbook installs the `perl-DBD-Pg` driver and the `psql` client (used by the one-time DB guards) instead of the MariaDB client. | `mysql`
@@ -81,8 +79,6 @@ Name             | Type   | Description                                         
   "mail-domain": "example.org",
   "user": "support",
   "failed-email": "systems@example.org",
-  "forward-email": "archive@gapps.example.org",
-  "forward-user": "support-gmail",
   "logo": {
     "url": "https://example.org/img/logo.png",
     "link": "https://support.example.org/",

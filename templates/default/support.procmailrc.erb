@@ -12,11 +12,6 @@ HOSTALIASES=$HOME/.rthost
 * ^From: MAILER-DAEMON@<%= @mail_domain %>
 /dev/null
 
-<% if @forward_email -%>
-:0 c
-! <%= @forward_email %>
-
-<% end -%>
 <% @rt_queues.each do |queue, email| -%>
 <%- next if !email -%>
 :0:.rt-mailparse.lock

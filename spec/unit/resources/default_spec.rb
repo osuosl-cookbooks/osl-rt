@@ -364,15 +364,9 @@ describe 'osl_request_tracker' do
             internal_domain: 'rtlocal',
             mail_domain: 'example.org',
             error_email: 'root',
-            forward_email: nil,
           }
         )
       end
-
-      # No forwarding user or logo configured by default
-      it { expect(chef_run).to_not create_template('/home/support-gmail/.procmailrc') }
-      it { expect(chef_run).to_not create_user('support-gmail') }
-      it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to be_nil }
 
       # Default Procmail setup
       it do
@@ -391,8 +385,8 @@ describe 'osl_request_tracker' do
     end
   end
 
-  # Optional mail forwarding + branding (two-user split, off-box forward, logo)
-  context 'with forwarding and branding' do
+  # Optional branding (custom logo)
+  context 'with branding' do
     platform ALMA_9[:platform], ALMA_9[:version]
 
     cached(:chef_run) { converge_rt(chef_runner) }
@@ -406,8 +400,6 @@ describe 'osl_request_tracker' do
                                                                     'db-password': 'rt-password',
                                                                     'root-password': 'my-epic-rt',
                                                                     'user': 'support',
-                                                                    'forward-email': 'archive@gapps.example.org',
-                                                                    'forward-user': 'support-gmail',
                                                                     'logo': {
                                                                       'url': 'https://example.org/img/logo.png',
                                                                       'link': 'https://support.example.org/',
@@ -417,36 +409,6 @@ describe 'osl_request_tracker' do
                                                                       'Support': 'support',
                                                                     },
                                                                   })
-    end
-
-    # Dedicated forward user is created and its procmailrc forwards off-box
-    it { expect(chef_run).to create_user('support-gmail').with(manage_home: true) }
-    it do
-      expect(chef_run).to create_template('/home/support-gmail/.procmailrc').with(
-        source: 'forward.procmailrc.erb',
-        cookbook: 'osl-rt',
-        owner: 'support-gmail',
-        group: 'support-gmail',
-        variables: {
-          mail_domain: 'example.org',
-          forward_email: 'archive@gapps.example.org',
-        }
-      )
-    end
-    it { expect(chef_run).to render_file('/home/support-gmail/.procmailrc').with_content('! archive@gapps.example.org') }
-
-    # In split mode the RT user does NOT also CC the copy
-    it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to be_nil }
-
-    # Queue alias delivers to both the RT user and the forward user
-    it do
-      expect(chef_run).to create_osl_postfix_server('default').with(
-        aliases: {
-          'support' => 'support, support-gmail',
-          'support-gmail' => 'support-gmail',
-          'support-comment' => 'support, support-gmail',
-        }
-      )
     end
 
     # Logo is fetched and wired into the RT config
@@ -462,34 +424,6 @@ describe 'osl_request_tracker' do
         .with_content("Set($LogoLinkURL, 'https://support.example.org/');")
         .with_content("Set($LogoAltText, 'Example Support');")
     end
-  end
-
-  # Single-user CC-forward (forward-email without forward-user)
-  context 'with single-user forwarding' do
-    platform ALMA_9[:platform], ALMA_9[:version]
-
-    cached(:chef_run) { converge_rt(chef_runner) }
-
-    before do
-      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
-      stub_data_bag_item('request-tracker', 'default').and_return({
-                                                                    'db-username': 'rt-user',
-                                                                    'db-password': 'rt-password',
-                                                                    'root-password': 'my-epic-rt',
-                                                                    'user': 'support',
-                                                                    'forward-email': 'archive@gapps.example.org',
-                                                                    'queues': {
-                                                                      'Support': 'support',
-                                                                    },
-                                                                  })
-    end
-
-    # The RT user CCs a copy off-box; no separate forward user exists
-    it { expect(chef_run).to_not create_user('support-gmail') }
-    it { expect(chef_run.template('/home/support/.procmailrc').variables[:forward_email]).to eq('archive@gapps.example.org') }
-    it { expect(chef_run).to render_file('/home/support/.procmailrc').with_content('! archive@gapps.example.org') }
   end
 
   # Opt-in upgrade: 'db-upgrade' = the DB's RT version, passed as --upgrade-from.
