@@ -182,6 +182,7 @@ end
 %w(
   Mail
   Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+  Mail/.AutoReply Mail/.AutoReply/cur Mail/.AutoReply/new Mail/.AutoReply/tmp
 ).each do |dir|
   describe directory "/home/support/#{dir}" do
     it { should exist }
@@ -206,6 +207,13 @@ describe file '/home/support/.procmailrc' do
   it { should exist }
   its('owner') { should cmp 'support' }
   its('group') { should cmp 'support' }
+  # RFC 3834 loop guards; auto-generated and Precedence bulk are excluded on
+  # purpose (abuse feeds, cron jobs and vendor alerts must still ticket)
+  its('content') { should match /^\* \^Auto-Submitted:\[ \t\]\*auto-\(replied\|notified\)$/ }
+  its('content') { should match /^\* \^Precedence:\[ \t\]\*\(list\|junk\)$/ }
+  its('content') { should match /^\* \^List-Id:$/ }
+  # No abuse-type queue in this suite, so the spam rule carries no exemption
+  its('content') { should_not include '* ! ^X-Original-To:' }
 end
 
 # Send a test ticket
@@ -264,6 +272,46 @@ end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
   its('stdout') { should_not match /spam-filing-test/ }
+end
+
+# An incoming autoresponse must file into .AutoReply/, never reach rt-mailgate:
+# RT auto-acks whatever gets that far and the two responders loop.
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: autoresponder@example.net' \
+    'To: support@example.org' \
+    'Subject: auto-replied-test' \
+    'Auto-Submitted: auto-replied' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'I am out of the office.' \
+    | /usr/sbin/sendmail -i -f autoresponder@example.net support@example.org
+  sleep 5
+  grep -rl auto-replied-test /home/support/Mail/.AutoReply/new
+EOC
+  its('exit_status') { should eq 0 }
+end
+
+# auto-generated is what abuse feeds and cron jobs set, and RFC 3834 5.2 bars
+# it from a direct reply, so it cannot loop: it must still open a ticket.
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: cron@example.net' \
+    'To: support@example.org' \
+    'Subject: auto-generated-test' \
+    'Auto-Submitted: auto-generated' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'Nightly job output.' \
+    | /usr/sbin/sendmail -i -f cron@example.net support@example.org
+  sleep 5
+EOC
+  its('exit_status') { should eq 0 }
+end
+
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
+  its('stdout') { should_not match /auto-replied-test/ }
+  its('stdout') { should match /auto-generated-test/ }
 end
 
 # RT_SiteConfig.d drop-in: the snippet dropped by the test recipe is loaded by

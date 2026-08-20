@@ -70,6 +70,10 @@ action :create do
   # either the fqdn or the public domain, so build a list of both for matching.
   mail_domain = osl_rt_mail_domain(rt_config)
   domains = osl_rt_domains(rt_config)
+  # Regex group matching any delivery domain, with literal dots escaped
+  domain_match = "(#{domains.map { |d| d.gsub('.', '\\.') }.join('|')})"
+  # Queue emails whose mail must never be diverted to .Spam/ (abuse-type queues)
+  spam_exempt = osl_rt_spam_exempt(rt_config)
 
   # Root Account
   template '/root/.rtrc' do
@@ -101,7 +105,7 @@ action :create do
   # leaf only.
   mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
   dirs = ["#{mail_home}/Mail"]
-  %w(.Spam).each do |folder|
+  %w(.Spam .AutoReply).each do |folder|
     dirs << "#{mail_home}/Mail/#{folder}"
     dirs.concat(%w(cur new tmp).map { |sub| "#{mail_home}/Mail/#{folder}/#{sub}" })
   end
@@ -248,10 +252,10 @@ action :create do
     group rt_config['user']
     variables(
       rt_queues: rt_config['queues'],
-      # Regex group matching any delivery domain, with literal dots escaped
-      domain_match: "(#{domains.map { |d| d.gsub('.', '\\.') }.join('|')})",
+      domain_match: domain_match,
       internal_domain: rt_config['internal-domain'],
       mail_domain: mail_domain,
+      spam_exempt: spam_exempt,
       # Where RT-unprocessable mail is forwarded (default local root).
       error_email: rt_config['failed-email'] || 'root'
     )

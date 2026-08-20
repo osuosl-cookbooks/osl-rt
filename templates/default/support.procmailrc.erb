@@ -4,13 +4,37 @@ MAILDIR=$HOME/Mail/
 LOGFILE=$MAILDIR/from
 HOSTALIASES=$HOME/.rthost
 
+<% unless @spam_exempt.empty? -%>
+# Exempt queues tag as spam by nature: abuse reports quote what they report
+<% end -%>
 :0:
+<% unless @spam_exempt.empty? -%>
+* ! ^X-Original-To: (<%= @spam_exempt.join('|') %>)(-comment)?@<%= @domain_match %>
+<% end -%>
 * ^X-Spam-Status: Yes
 .Spam/
 
 :0:
 * ^From: MAILER-DAEMON@<%= @mail_domain %>
 /dev/null
+
+# RT auto-acks whatever rt-mailgate feeds it, so mail from an automatic process
+# loops if it gets that far. File rather than drop, so the traffic stays
+# reviewable. Response values only: RFC 3834 5.2 bars auto-generated from a
+# reply, and it is what abuse feeds and cron jobs set, which must still ticket.
+:0:
+* ^Auto-Submitted:[ 	]*auto-(replied|notified)
+.AutoReply/
+
+# "bulk" is absent on purpose: vendors set it on real alerts. list/junk and
+# List-Id mark redistributed mail, how mailing-list reflectors reach us.
+:0:
+* ^Precedence:[ 	]*(list|junk)
+.AutoReply/
+
+:0:
+* ^List-Id:
+.AutoReply/
 
 <% @rt_queues.each do |queue, email| -%>
 <%- next if !email -%>

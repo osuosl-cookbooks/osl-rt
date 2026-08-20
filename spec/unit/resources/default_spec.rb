@@ -342,6 +342,7 @@ describe 'osl_request_tracker' do
       %w(
         Mail
         Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+        Mail/.AutoReply Mail/.AutoReply/cur Mail/.AutoReply/new Mail/.AutoReply/tmp
       ).each do |dir|
         it do
           expect(chef_run).to create_directory("/home/support/#{dir}").with(
@@ -377,10 +378,39 @@ describe 'osl_request_tracker' do
             domain_match: '(example\.org)',
             internal_domain: 'rtlocal',
             mail_domain: 'example.org',
+            spam_exempt: [],
             error_email: 'root',
           }
         )
       end
+
+      # RFC 3834 loop guards: an incoming autoresponse must never reach
+      # rt-mailgate, or RT's auto-ack answers it and the two responders loop.
+      # auto-generated / Precedence bulk are excluded on purpose (abuse feeds,
+      # cron jobs and vendor alerts set them; RFC 3834 5.2 bars auto-generated
+      # from a reply, so it cannot sustain a loop).
+      [
+        /^\* \^Auto-Submitted:\[ \t\]\*auto-\(replied\|notified\)$/,
+        /^\* \^Precedence:\[ \t\]\*\(list\|junk\)$/,
+        /^\* \^List-Id:$/,
+      ].each do |rule|
+        it { expect(chef_run).to render_file('/home/support/.procmailrc').with_content(rule) }
+      end
+
+      # Every guard must sit above the rt-mailgate dispatch to be worth anything
+      it do
+        content = ChefSpec::Renderer.new(
+          chef_run, chef_run.template('/home/support/.procmailrc')
+        ).content
+        dispatch = content.index('| /opt/rt/bin/rt-mailgate')
+        expect(dispatch).to_not be_nil
+        ['^Auto-Submitted:', '^Precedence:', '^List-Id:'].each do |rule|
+          expect(content.index(rule)).to be < dispatch
+        end
+      end
+
+      # No abuse-type queue configured, so the spam rule carries no exemption
+      it { expect(chef_run).to_not render_file('/home/support/.procmailrc').with_content('* ! ^X-Original-To:') }
 
       # Default Procmail setup
       it do
@@ -437,6 +467,73 @@ describe 'osl_request_tracker' do
         .with_content("Set($LogoURL, '/static/images/logo.png');")
         .with_content("Set($LogoLinkURL, 'https://support.example.org/');")
         .with_content("Set($LogoAltText, 'Example Support');")
+    end
+  end
+
+  # Data-driven spam exemption: abuse-type queues (their reports quote the spam
+  # they report) are exempt from the X-Spam-Status diversion.
+  context 'with abuse and postmaster queues' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                      'Abuse': 'abuse',
+                                                                      'Postmaster': 'postmaster',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect(chef_run.template('/home/support/.procmailrc').variables[:spam_exempt]).to eq(%w(abuse postmaster)) }
+
+    # The exemption must be a condition of the spam rule itself
+    it do
+      expect(chef_run).to render_file('/home/support/.procmailrc').with_content(
+        /^\* ! \^X-Original-To: \(abuse\|postmaster\)\(-comment\)\?@\(example\\\.org\)\n\* \^X-Spam-Status: Yes$/
+      )
+    end
+  end
+
+  # 'spam-exempt' in the data bag overrides the abuse/postmaster default
+  context 'with an explicit spam-exempt list' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'spam-exempt': %w(csirt),
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                      'Abuse': 'abuse',
+                                                                      'CSIRT': 'csirt',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect(chef_run.template('/home/support/.procmailrc').variables[:spam_exempt]).to eq(%w(csirt)) }
+
+    it do
+      expect(chef_run).to render_file('/home/support/.procmailrc').with_content(
+        /^\* ! \^X-Original-To: \(csirt\)\(-comment\)\?@\(example\\\.org\)$/
+      )
     end
   end
 

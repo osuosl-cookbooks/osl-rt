@@ -11,7 +11,8 @@
   },
   "queues": {
     "Support": "support",
-    "Systems Team": "systems"
+    "Systems Team": "systems",
+    "Abuse": "abuse"
   },
   "plugins": [
     "RT::Extension::REST2",

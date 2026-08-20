@@ -28,7 +28,7 @@ describe file('/opt/rt/etc/RT_SiteConfig.pm') do
     "Set($CorrespondAddress, 'support@example.org');",
     "Set($CommentAddress, 'support-comment@example.org');",
     # RTAddressRegexp must accept BOTH delivery domains
-    "Set($RTAddressRegexp, '^((support|systems)(-comment)?@(support\\.example\\.org|example\\.org))$');",
+    "Set($RTAddressRegexp, '^((abuse|support|systems)(-comment)?@(support\\.example\\.org|example\\.org))$');",
     # Branding wired from the 'logo' data-bag key
     "Set($LogoURL, '/static/images/osl-rt-test-logo.png');",
     "Set($LogoLinkURL, 'https://support.example.org/');",
@@ -52,6 +52,7 @@ end
 %w(
   Mail
   Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+  Mail/.AutoReply Mail/.AutoReply/cur Mail/.AutoReply/new Mail/.AutoReply/tmp
 ).each do |dir|
   describe directory "/home/support/#{dir}" do
     it { should exist }
@@ -66,10 +67,21 @@ describe file('/home/support/.procmailrc') do
   # domain_match group accepts both delivery domains (dots escaped for procmail)
   its('content') { should include 'X-Original-To: support@(support\.example\.org|example\.org)' }
   its('content') { should include '/opt/rt/bin/rt-mailgate --queue "Support" --action correspond --url http://rtlocal' }
+  # abuse@ is exempt from the spam diversion: reports quote what they report
+  its('content') do
+    should match(
+      /^\* ! \^X-Original-To: \(abuse\)\(-comment\)\?@\(support\\\.example\\\.org\|example\\\.org\)\n\* \^X-Spam-Status: Yes$/
+    )
+  end
+  # RFC 3834 loop guards; auto-generated and Precedence bulk excluded on purpose
+  its('content') { should match /^\* \^Auto-Submitted:\[ \t\]\*auto-\(replied\|notified\)$/ }
+  its('content') { should match /^\* \^Precedence:\[ \t\]\*\(list\|junk\)$/ }
+  its('content') { should match /^\* \^List-Id:$/ }
 end
 
 describe file('/etc/aliases') do
   its('content') { should match(/^support: support$/) }
+  its('content') { should match(/^abuse: support$/) }
 end
 
 # Transports exist for every delivery domain
@@ -81,6 +93,8 @@ describe file('/etc/postfix/transport') do
     'support-comment@example.org local:$myhostname',
     'systems@support.example.org local:$myhostname',
     'systems@example.org local:$myhostname',
+    'abuse@support.example.org local:$myhostname',
+    'abuse@example.org local:$myhostname',
   ].each do |line|
     its('content') { should match Regexp.escape(line) }
   end
@@ -101,9 +115,66 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' 
   its('exit_status') { should eq 0 }
   its('stdout') { should match(/Support/) }
   its('stdout') { should match(/Systems Team/) }
+  its('stdout') { should match(/Abuse/) }
 end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
   its('exit_status') { should eq 0 }
   its('stdout') { should match(/two-domain-test/) }
+end
+
+# Spam to a normal queue files into .Spam/ and never tickets
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: spammer@example.net' \
+    'To: support@example.org' \
+    'Subject: two-domain-spam-test' \
+    'X-Spam-Status: Yes, score=10.0 required=5.0' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'Definitely spam.' \
+    | /usr/sbin/sendmail -i -f spammer@example.net support@example.org
+  sleep 5
+  grep -rl two-domain-spam-test /home/support/Mail/.Spam/new
+EOC
+  its('exit_status') { should eq 0 }
+end
+
+# Spam-tagged mail to abuse@ must still ticket: reports quote the spam they report
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: reporter@example.net' \
+    'To: abuse@example.org' \
+    'Subject: abuse-exemption-test' \
+    'X-Spam-Status: Yes, score=10.0 required=5.0' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'Report quoting the spam it reports.' \
+    | /usr/sbin/sendmail -i -f reporter@example.net abuse@example.org
+  sleep 5
+EOC
+  its('exit_status') { should eq 0 }
+end
+
+# An incoming autoresponse files into .AutoReply/ and never reaches rt-mailgate
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: autoresponder@example.net' \
+    'To: support@example.org' \
+    'Subject: two-domain-autoreply-test' \
+    'Auto-Submitted: auto-replied' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'I am out of the office.' \
+    | /usr/sbin/sendmail -i -f autoresponder@example.net support@example.org
+  sleep 5
+  grep -rl two-domain-autoreply-test /home/support/Mail/.AutoReply/new
+EOC
+  its('exit_status') { should eq 0 }
+end
+
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
+  its('stdout') { should match(/abuse-exemption-test/) }
+  its('stdout') { should_not match(/two-domain-spam-test/) }
+  its('stdout') { should_not match(/two-domain-autoreply-test/) }
 end

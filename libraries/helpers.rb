@@ -132,6 +132,14 @@ module OslRT
         rt_config['queues'].values.compact.sort
       end
 
+      # Queue emails exempt from procmail's X-Spam-Status diversion, overridable
+      # via 'spam-exempt' in the data bag. Defaults to abuse/postmaster when they
+      # are queues: their mail quotes or bounces the very spam it reports, so it
+      # tags as spam by nature and must still be ticketed.
+      def osl_rt_spam_exempt(rt_config)
+        rt_config['spam-exempt'] || (osl_rt_emails(rt_config) & %w(abuse postmaster))
+      end
+
       # Postfix aliases handed to osl_postfix_server. Self-alias the RT user so
       # its mailbox (and ~/.procmailrc) gets RT mail, overriding any system
       # default like "support: postmaster"; then map every queue email (and its
