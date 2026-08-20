@@ -91,13 +91,26 @@ action :create do
   end
 
   # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
-  # doesn't fail to write its logfile ("Error while writing to ./from"). The
-  # mailgate pipe runs either way, but without this every delivery logs an error.
+  # doesn't fail to write its logfile ("Error while writing to ./from"). Mail/
+  # itself is deliberately not a maildir: the rc file ends in a catch-all, so
+  # nothing may deliver to DEFAULT. The folders procmail files into are declared
+  # as full maildirs: procmail only builds a missing one when it can write the
+  # parent, and an undeliverable folder is not inert -- delivery falls through
+  # to the next recipe, ticketing the very mail the rule was meant to file.
+  # Every level is declared because `recursive` would apply the owner to the
+  # leaf only.
   mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
-  directory "#{mail_home}/Mail" do
-    owner mail_user
-    group mail_user
-    mode '0700'
+  dirs = ["#{mail_home}/Mail"]
+  %w(.Spam).each do |folder|
+    dirs << "#{mail_home}/Mail/#{folder}"
+    dirs.concat(%w(cur new tmp).map { |sub| "#{mail_home}/Mail/#{folder}/#{sub}" })
+  end
+  dirs.each do |dir|
+    directory dir do
+      owner mail_user
+      group mail_user
+      mode '0700'
+    end
   end
 
   # User defined Hostalias file in order to patch into the RT site with the RT CLI/procmail

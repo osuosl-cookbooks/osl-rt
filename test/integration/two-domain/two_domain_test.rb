@@ -47,6 +47,20 @@ describe user('support') do
   it { should exist }
 end
 
+# The folders procmail files into must be full maildirs: an undeliverable one
+# falls through to the next recipe.
+%w(
+  Mail
+  Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+).each do |dir|
+  describe directory "/home/support/#{dir}" do
+    it { should exist }
+    its('owner') { should cmp 'support' }
+    its('group') { should cmp 'support' }
+    its('mode') { should cmp '0700' }
+  end
+end
+
 # RT user feeds rt-mailgate for both domains
 describe file('/home/support/.procmailrc') do
   # domain_match group accepts both delivery domains (dots escaped for procmail)

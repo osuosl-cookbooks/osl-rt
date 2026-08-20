@@ -176,12 +176,25 @@ describe directory '/home/support' do
 end
 
 # procmail's MAILDIR ($HOME/Mail) must exist, or local delivery can't write its
-# LOGFILE ("Error while writing to ./from").
-describe directory '/home/support/Mail' do
-  it { should exist }
-  its('owner') { should cmp 'support' }
-  its('group') { should cmp 'support' }
-  its('mode') { should cmp '0700' }
+# LOGFILE ("Error while writing to ./from"). The folders procmail files into
+# must be full maildirs owned at every level: an undeliverable (e.g. root-owned)
+# one makes delivery fall through to the next recipe.
+%w(
+  Mail
+  Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+).each do |dir|
+  describe directory "/home/support/#{dir}" do
+    it { should exist }
+    its('owner') { should cmp 'support' }
+    its('group') { should cmp 'support' }
+    its('mode') { should cmp '0700' }
+  end
+end
+
+# Mail/ itself must stay a plain directory: the rcfile ends in a catch-all,
+# so a message landing in DEFAULT means a broken rcfile.
+describe directory '/home/support/Mail/new' do
+  it { should_not exist }
 end
 
 describe file '/etc/Muttrc.local' do
@@ -229,6 +242,28 @@ end
 # (Must come after the mail round-trip: no mail has flowed before it.)
 describe file '/home/support/Mail/from' do
   it { should exist }
+end
+
+# Spam is filed into .Spam/, never ticketed. If the maildir were undeliverable
+# the rule would fall through and the spam would be ticketed instead.
+describe command <<~EOC do
+  printf '%s\\n' \
+    'From: spammer@example.net' \
+    'To: support@example.org' \
+    'Subject: spam-filing-test' \
+    'X-Spam-Status: Yes, score=10.0 required=5.0' \
+    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
+    '' \
+    'Definitely spam.' \
+    | /usr/sbin/sendmail -i -f spammer@example.net support@example.org
+  sleep 5
+  grep -rl spam-filing-test /home/support/Mail/.Spam/new
+EOC
+  its('exit_status') { should eq 0 }
+end
+
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
+  its('stdout') { should_not match /spam-filing-test/ }
 end
 
 # RT_SiteConfig.d drop-in: the snippet dropped by the test recipe is loaded by

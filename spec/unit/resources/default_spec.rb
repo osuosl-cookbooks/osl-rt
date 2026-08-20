@@ -336,12 +336,26 @@ describe 'osl_request_tracker' do
       end
 
       # procmail's MAILDIR ($HOME/Mail) must exist or local delivery logs errors.
-      it do
-        expect(chef_run).to create_directory('/home/support/Mail').with(
-          owner: 'support',
-          group: 'support',
-          mode: '0700'
-        )
+      # The folders procmail files into must be full maildirs it can deliver
+      # into (an undeliverable one falls through to the next recipe), every
+      # level owned by the user (`recursive` would own only the leaf).
+      %w(
+        Mail
+        Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+      ).each do |dir|
+        it do
+          expect(chef_run).to create_directory("/home/support/#{dir}").with(
+            owner: 'support',
+            group: 'support',
+            mode: '0700'
+          )
+        end
+      end
+
+      # Mail/ itself must stay a plain directory: the rc file ends in a
+      # catch-all, so a message landing in DEFAULT means a broken rcfile.
+      %w(cur new tmp).each do |sub|
+        it { expect(chef_run).to_not create_directory("/home/support/Mail/#{sub}") }
       end
 
       # Support Procmail setup
