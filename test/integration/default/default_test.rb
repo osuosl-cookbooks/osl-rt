@@ -259,21 +259,14 @@ describe file '/home/support/Mail/from' do
   it { should exist }
 end
 
+# Mail-injection checks run through the osl-rt-test-mail script (one root
+# command; a multi-line command here would run its tail as the unprivileged ssh
+# user). The script polls until the message arrives, then the one-line rt ls
+# describes below assert what must NOT have happened.
+
 # Spam is filed into .Spam/, never ticketed. If the maildir were undeliverable
 # the rule would fall through and the spam would be ticketed instead.
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: spammer@example.net' \
-    'To: support@example.org' \
-    'Subject: spam-filing-test' \
-    'X-Spam-Status: Yes, score=10.0 required=5.0' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'Definitely spam.' \
-    | /usr/sbin/sendmail -i -f spammer@example.net support@example.org
-  sleep 5
-  grep -rl spam-filing-test /home/support/Mail/.Spam/new
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org spam-filing-test /home/support/Mail/.Spam/new 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
   its('exit_status') { should eq 0 }
 end
 
@@ -283,42 +276,18 @@ end
 
 # An incoming autoresponse must file into .AutoReply/, never reach rt-mailgate:
 # RT auto-acks whatever gets that far and the two responders loop.
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: autoresponder@example.net' \
-    'To: support@example.org' \
-    'Subject: auto-replied-test' \
-    'Auto-Submitted: auto-replied' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'I am out of the office.' \
-    | /usr/sbin/sendmail -i -f autoresponder@example.net support@example.org
-  sleep 5
-  grep -rl auto-replied-test /home/support/Mail/.AutoReply/new
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org auto-replied-test /home/support/Mail/.AutoReply/new 'Auto-Submitted: auto-replied'" do
   its('exit_status') { should eq 0 }
 end
 
 # auto-generated is what abuse feeds and cron jobs set, and RFC 3834 5.2 bars
 # it from a direct reply, so it cannot loop: it must still open a ticket.
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: cron@example.net' \
-    'To: support@example.org' \
-    'Subject: auto-generated-test' \
-    'Auto-Submitted: auto-generated' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'Nightly job output.' \
-    | /usr/sbin/sendmail -i -f cron@example.net support@example.org
-  sleep 5
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org auto-generated-test ticket 'Auto-Submitted: auto-generated'" do
   its('exit_status') { should eq 0 }
 end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
   its('stdout') { should_not match /auto-replied-test/ }
-  its('stdout') { should match /auto-generated-test/ }
 end
 
 # RT_SiteConfig.d drop-in: the snippet dropped by the test recipe is loaded by

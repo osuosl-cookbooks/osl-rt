@@ -123,77 +123,33 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subje
   its('stdout') { should match(/two-domain-test/) }
 end
 
+# Mail-injection checks run through the osl-rt-test-mail script (one root
+# command; a multi-line command here would run its tail as the unprivileged ssh
+# user). The script polls until the message arrives, then the one-line rt ls
+# describe below asserts what must NOT have happened.
+
 # Spam to a normal queue files into .Spam/ and never tickets
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: spammer@example.net' \
-    'To: support@example.org' \
-    'Subject: two-domain-spam-test' \
-    'X-Spam-Status: Yes, score=10.0 required=5.0' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'Definitely spam.' \
-    | /usr/sbin/sendmail -i -f spammer@example.net support@example.org
-  sleep 5
-  grep -rl two-domain-spam-test /home/support/Mail/.Spam/new
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org two-domain-spam-test /home/support/Mail/.Spam/new 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
   its('exit_status') { should eq 0 }
 end
 
 # Spam-tagged mail to abuse@ must still ticket: reports quote the spam they report
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: reporter@example.net' \
-    'To: abuse@example.org' \
-    'Subject: abuse-exemption-test' \
-    'X-Spam-Status: Yes, score=10.0 required=5.0' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'Report quoting the spam it reports.' \
-    | /usr/sbin/sendmail -i -f reporter@example.net abuse@example.org
-  sleep 5
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail abuse@example.org abuse-exemption-test ticket 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
   its('exit_status') { should eq 0 }
 end
 
 # A sender-supplied X-Original-To must not defeat the abuse exemption (or pick
 # the queue): cleanup strips it before local delivery stamps the real one.
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: spammer@example.net' \
-    'X-Original-To: abuse@example.org' \
-    'To: support@example.org' \
-    'Subject: forged-xoriginalto-test' \
-    'X-Spam-Status: Yes, score=10.0 required=5.0' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'Spam wearing a forged dispatch header.' \
-    | /usr/sbin/sendmail -i -f spammer@example.net support@example.org
-  sleep 5
-  grep -rl forged-xoriginalto-test /home/support/Mail/.Spam/new
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org forged-xoriginalto-test /home/support/Mail/.Spam/new 'X-Original-To: abuse@example.org' 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
   its('exit_status') { should eq 0 }
 end
 
 # An incoming autoresponse files into .AutoReply/ and never reaches rt-mailgate
-describe command <<~EOC do
-  printf '%s\\n' \
-    'From: autoresponder@example.net' \
-    'To: support@example.org' \
-    'Subject: two-domain-autoreply-test' \
-    'Auto-Submitted: auto-replied' \
-    'Date: Thu, 1 Jan 2026 00:00:00 +0000' \
-    '' \
-    'I am out of the office.' \
-    | /usr/sbin/sendmail -i -f autoresponder@example.net support@example.org
-  sleep 5
-  grep -rl two-domain-autoreply-test /home/support/Mail/.AutoReply/new
-EOC
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org two-domain-autoreply-test /home/support/Mail/.AutoReply/new 'Auto-Submitted: auto-replied'" do
   its('exit_status') { should eq 0 }
 end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
-  its('stdout') { should match(/abuse-exemption-test/) }
   its('stdout') { should_not match(/two-domain-spam-test/) }
   its('stdout') { should_not match(/two-domain-autoreply-test/) }
   its('stdout') { should_not match(/forged-xoriginalto-test/) }
