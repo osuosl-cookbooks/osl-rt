@@ -11,14 +11,19 @@
 recipient=$1 subject=$2 expect=$3
 shift 3
 
+# Send as root@localhost: a fresh RT database grants unknown senders no
+# CreateTicket right (rt-mailgate gets Permission Denied and procmail's
+# no-w pipe swallows it), and root@localhost is the initial RT superuser's
+# address -- the one sender a bare database tickets mail from. The mailx
+# round trip relies on the same fact.
 {
-  printf 'From: sender@example.net\n'
+  printf 'From: root@localhost\n'
   printf 'To: %s\n' "$recipient"
   printf 'Subject: %s\n' "$subject"
   for header in "$@"; do printf '%s\n' "$header"; done
   printf 'Date: %s\n' "$(date -R)"
   printf '\nTest message body.\n'
-} | /usr/sbin/sendmail -i -f sender@example.net "$recipient" || exit 2
+} | /usr/sbin/sendmail -i -f root@localhost "$recipient" || exit 2
 
 for _ in $(seq 1 30); do
   if [ "$expect" = ticket ]; then
