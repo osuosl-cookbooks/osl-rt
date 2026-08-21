@@ -1,4 +1,4 @@
-# Verifies the two-domain (mail-domain != fqdn) + forward-user split + logo setup.
+# Verifies the two-domain (mail-domain != fqdn) + logo setup.
 
 describe service('httpd') do
   it { should be_enabled }
@@ -28,7 +28,7 @@ describe file('/opt/rt/etc/RT_SiteConfig.pm') do
     "Set($CorrespondAddress, 'support@example.org');",
     "Set($CommentAddress, 'support-comment@example.org');",
     # RTAddressRegexp must accept BOTH delivery domains
-    "Set($RTAddressRegexp, '^((support|systems)(-comment)?@(support\\.example\\.org|example\\.org))$');",
+    "Set($RTAddressRegexp, '^((abuse|support|systems)(-comment)?@(support\\.example\\.org|example\\.org))$');",
     # Branding wired from the 'logo' data-bag key
     "Set($LogoURL, '/static/images/osl-rt-test-logo.png');",
     "Set($LogoLinkURL, 'https://support.example.org/');",
@@ -43,31 +43,45 @@ describe file('/opt/rt/share/static/images/osl-rt-test-logo.png') do
   it { should be_file }
 end
 
-# Both mail users exist (two-user split)
-%w(support support-gmail).each do |u|
-  describe user(u) do
+describe user('support') do
+  it { should exist }
+end
+
+# The folders procmail files into must be full maildirs: an undeliverable one
+# falls through to the next recipe.
+%w(
+  Mail
+  Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+  Mail/.AutoReply Mail/.AutoReply/cur Mail/.AutoReply/new Mail/.AutoReply/tmp
+).each do |dir|
+  describe directory "/home/support/#{dir}" do
     it { should exist }
+    its('owner') { should cmp 'support' }
+    its('group') { should cmp 'support' }
+    its('mode') { should cmp '0700' }
   end
 end
 
-# RT user feeds rt-mailgate for both domains and does NOT forward (the split user does).
+# RT user feeds rt-mailgate for both domains
 describe file('/home/support/.procmailrc') do
   # domain_match group accepts both delivery domains (dots escaped for procmail)
   its('content') { should include 'X-Original-To: support@(support\.example\.org|example\.org)' }
   its('content') { should include '/opt/rt/bin/rt-mailgate --queue "Support" --action correspond --url http://rtlocal' }
-  # In split mode the RT user does NOT forward off-box (that is the forward user)
-  its('content') { should_not match(/^! root@example\.org$/) }
+  # abuse@ is exempt from the spam diversion: reports quote what they report
+  its('content') do
+    should match(
+      /^\* ! \^X-Original-To: \(abuse\)\(-comment\)\?@\(support\\\.example\\\.org\|example\\\.org\)\n\* \^X-Spam-Status: Yes$/
+    )
+  end
+  # RFC 3834 loop guards; auto-generated and Precedence bulk excluded on purpose
+  its('content') { should match /^\* \^Auto-Submitted:\[ \t\]\*auto-\(replied\|notified\)$/ }
+  its('content') { should match /^\* \^Precedence:\[ \t\]\*\(list\|junk\)$/ }
+  its('content') { should match /^\* \^List-Id:$/ }
 end
 
-# Forward user forwards a copy off-box
-describe file('/home/support-gmail/.procmailrc') do
-  it { should exist }
-  its('content') { should match(/^! root@example\.org$/) }
-end
-
-# Queue mail is delivered to BOTH the RT user and the forward user
 describe file('/etc/aliases') do
-  its('content') { should match(/^support: support, support-gmail$/) }
+  its('content') { should match(/^support: support$/) }
+  its('content') { should match(/^abuse: support$/) }
 end
 
 # Transports exist for every delivery domain
@@ -79,6 +93,8 @@ describe file('/etc/postfix/transport') do
     'support-comment@example.org local:$myhostname',
     'systems@support.example.org local:$myhostname',
     'systems@example.org local:$myhostname',
+    'abuse@support.example.org local:$myhostname',
+    'abuse@example.org local:$myhostname',
   ].each do |line|
     its('content') { should match Regexp.escape(line) }
   end
@@ -90,7 +106,7 @@ describe postfix_conf('/etc/postfix/main.cf') do
   end
 end
 
-# Mail round-trip: a ticket to the mail-domain reaches RT through the split.
+# Mail round-trip: a ticket to the mail-domain reaches RT.
 describe command 'echo "Need help with the two-domain setup" | mailx -r root@localhost -s "two-domain-test" support@example.org' do
   its('exit_status') { should eq 0 }
 end
@@ -99,9 +115,42 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' 
   its('exit_status') { should eq 0 }
   its('stdout') { should match(/Support/) }
   its('stdout') { should match(/Systems Team/) }
+  its('stdout') { should match(/Abuse/) }
 end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
   its('exit_status') { should eq 0 }
   its('stdout') { should match(/two-domain-test/) }
+end
+
+# Mail-injection checks run through the osl-rt-test-mail script (one root
+# command; a multi-line command here would run its tail as the unprivileged ssh
+# user). The script polls until the message arrives, then the one-line rt ls
+# describe below asserts what must NOT have happened.
+
+# Spam to a normal queue files into .Spam/ and never tickets
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org two-domain-spam-test /home/support/Mail/.Spam/new 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
+  its('exit_status') { should eq 0 }
+end
+
+# Spam-tagged mail to abuse@ must still ticket: reports quote the spam they report
+describe command "/usr/local/bin/osl-rt-test-mail abuse@example.org abuse-exemption-test ticket 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
+  its('exit_status') { should eq 0 }
+end
+
+# A sender-supplied X-Original-To must not defeat the abuse exemption (or pick
+# the queue): cleanup strips it before local delivery stamps the real one.
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org forged-xoriginalto-test /home/support/Mail/.Spam/new 'X-Original-To: abuse@example.org' 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
+  its('exit_status') { should eq 0 }
+end
+
+# An incoming autoresponse files into .AutoReply/ and never reaches rt-mailgate
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org two-domain-autoreply-test /home/support/Mail/.AutoReply/new 'Auto-Submitted: auto-replied'" do
+  its('exit_status') { should eq 0 }
+end
+
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
+  its('stdout') { should_not match(/two-domain-spam-test/) }
+  its('stdout') { should_not match(/two-domain-autoreply-test/) }
+  its('stdout') { should_not match(/forged-xoriginalto-test/) }
 end

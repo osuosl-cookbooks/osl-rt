@@ -89,6 +89,7 @@ describe file '/usr/local/sbin/rt' do
 end
 
 describe postfix_conf('/etc/postfix/main.cf') do
+  its('header_checks') { should eq 'regexp:/etc/postfix/header_checks' }
   its('home_mailbox') { should eq 'Mail/' }
   its('mydestination') { should eq '$myhostname, localhost.$mydomain, localhost, example.org' }
   its('mailbox_command') { should eq '/usr/bin/procmail' }
@@ -147,6 +148,12 @@ describe file('/etc/postfix/transport') do
   end
 end
 
+# Sender-supplied X-Original-To could pick the dispatch queue or defeat the
+# spam exemption; cleanup strips them all before local delivery stamps the real one.
+describe file('/etc/postfix/header_checks') do
+  its('content') { should match %r{^/\^X-Original-To:/ IGNORE$} }
+end
+
 describe command 'postfix check' do
   its('stderr') { should_not match /warning/ }
 end
@@ -176,12 +183,26 @@ describe directory '/home/support' do
 end
 
 # procmail's MAILDIR ($HOME/Mail) must exist, or local delivery can't write its
-# LOGFILE ("Error while writing to ./from").
-describe directory '/home/support/Mail' do
-  it { should exist }
-  its('owner') { should cmp 'support' }
-  its('group') { should cmp 'support' }
-  its('mode') { should cmp '0700' }
+# LOGFILE ("Error while writing to ./from"). The folders procmail files into
+# must be full maildirs owned at every level: an undeliverable (e.g. root-owned)
+# one makes delivery fall through to the next recipe.
+%w(
+  Mail
+  Mail/.Spam Mail/.Spam/cur Mail/.Spam/new Mail/.Spam/tmp
+  Mail/.AutoReply Mail/.AutoReply/cur Mail/.AutoReply/new Mail/.AutoReply/tmp
+).each do |dir|
+  describe directory "/home/support/#{dir}" do
+    it { should exist }
+    its('owner') { should cmp 'support' }
+    its('group') { should cmp 'support' }
+    its('mode') { should cmp '0700' }
+  end
+end
+
+# Mail/ itself must stay a plain directory: the rcfile ends in a catch-all,
+# so a message landing in DEFAULT means a broken rcfile.
+describe directory '/home/support/Mail/new' do
+  it { should_not exist }
 end
 
 describe file '/etc/Muttrc.local' do
@@ -193,6 +214,13 @@ describe file '/home/support/.procmailrc' do
   it { should exist }
   its('owner') { should cmp 'support' }
   its('group') { should cmp 'support' }
+  # RFC 3834 loop guards; auto-generated and Precedence bulk are excluded on
+  # purpose (abuse feeds, cron jobs and vendor alerts must still ticket)
+  its('content') { should match /^\* \^Auto-Submitted:\[ \t\]\*auto-\(replied\|notified\)$/ }
+  its('content') { should match /^\* \^Precedence:\[ \t\]\*\(list\|junk\)$/ }
+  its('content') { should match /^\* \^List-Id:$/ }
+  # No abuse-type queue in this suite, so the spam rule carries no exemption
+  its('content') { should_not include '* ! ^X-Original-To:' }
 end
 
 # Send a test ticket
@@ -229,6 +257,37 @@ end
 # (Must come after the mail round-trip: no mail has flowed before it.)
 describe file '/home/support/Mail/from' do
   it { should exist }
+end
+
+# Mail-injection checks run through the osl-rt-test-mail script (one root
+# command; a multi-line command here would run its tail as the unprivileged ssh
+# user). The script polls until the message arrives, then the one-line rt ls
+# describes below assert what must NOT have happened.
+
+# Spam is filed into .Spam/, never ticketed. If the maildir were undeliverable
+# the rule would fall through and the spam would be ticketed instead.
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org spam-filing-test /home/support/Mail/.Spam/new 'X-Spam-Status: Yes, score=10.0 required=5.0'" do
+  its('exit_status') { should eq 0 }
+end
+
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
+  its('stdout') { should_not match /spam-filing-test/ }
+end
+
+# An incoming autoresponse must file into .AutoReply/, never reach rt-mailgate:
+# RT auto-acks whatever gets that far and the two responders loop.
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org auto-replied-test /home/support/Mail/.AutoReply/new 'Auto-Submitted: auto-replied'" do
+  its('exit_status') { should eq 0 }
+end
+
+# auto-generated is what abuse feeds and cron jobs set, and RFC 3834 5.2 bars
+# it from a direct reply, so it cannot loop: it must still open a ticket.
+describe command "/usr/local/bin/osl-rt-test-mail support@example.org auto-generated-test ticket 'Auto-Submitted: auto-generated'" do
+  its('exit_status') { should eq 0 }
+end
+
+describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
+  its('stdout') { should_not match /auto-replied-test/ }
 end
 
 # RT_SiteConfig.d drop-in: the snippet dropped by the test recipe is loaded by

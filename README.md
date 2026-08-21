@@ -56,8 +56,6 @@ Name             | Type   | Description                                         
 `web-base-url`   | String | Sets RT's `$WebBaseURL` explicitly. Only needed when the public URL isn't derivable from `fqdn` + `web-port` (a different public host, a `WebPath` prefix, etc.); otherwise RT derives it. | derived
 `user`           | String | The user account that is responsible for being the default email | `support`
 `failed-email`   | String | Address that mail RT fails to process is forwarded to        | `root`
-`forward-email`  | String | If set, a copy of incoming queue mail is forwarded off-box to this address (e.g. a Google Workspace archive mailbox). | nil
-`forward-user`   | String | Optional dedicated local user for the forward (two-user split). When set, queue mail is delivered to both the RT `user` (feeds rt-mailgate) and this user (forwards a copy to `forward-email`), so RT processing and the off-box copy don't interfere. Requires `forward-email`. | nil
 `logo`           | Hash   | Optional custom branding. `url` is fetched into RT's static images dir and `$LogoURL` is set to the served path; `link`/`alt` set `$LogoLinkURL`/`$LogoAltText`. Assumes the default (empty) `WebPath`; override `$LogoURL` via `extra-config` otherwise. | nil
 `internal-domain`| String | A workaround required needs a non-sublevel domain name to access the site internally | `rtlocal`
 `db.type`        | String | The database engine, passed to RT as `$DatabaseType`. Use `mysql` for MySQL/MariaDB or `Pg` for PostgreSQL. With `Pg` the cookbook installs the `perl-DBD-Pg` driver and the `psql` client (used by the one-time DB guards) instead of the MariaDB client. | `mysql`
@@ -65,6 +63,7 @@ Name             | Type   | Description                                         
 `db.name`        | String | The DB name on the DB server                                 | `rt`
 `db-upgrade`     | String | Opt-in: the RT version the database is currently at (e.g. `"4.4.7"`), passed as `--upgrade-from` to apply pending schema upgrades (after importing a DB or an RT package upgrade). The "proceed?" prompt is auto-confirmed, so **back up first**. See [docs/migration.md](docs/migration.md). | unset |
 `queues`         | Hash   | The queues and emails available for RT. The key is the pretty print, and the value is a email-valid name. | `{'Support Example': nil}` Any nil-valued key will be ignored.
+`spam-exempt`    | Array  | Queue emails whose mail is never diverted to `.Spam/` by procmail's `X-Spam-Status` rule. Abuse-type queues need this: their reports quote the very spam they report, so they tag as spam by nature but must still be ticketed. | the `queues` emails intersected with `abuse`/`postmaster`
 `plugins`        | Array  | A list of [plugins](https://rt-wiki.bestpractical.com/wiki/Extensions) to add to the RT site. On EL10/RT 5, extensions merged into core (`RT::Extension::REST2`, `RT::Authen::Token`) are automatically skipped. | `[]`
 `lifecycles`     | Hash   | Any [custom lifecycles](https://docs.bestpractical.com/rt/4.4.1/customizing/lifecycles.html) to make available in RT. Arbitrary lifecycles (including an `approvals` lifecycle) are emitted verbatim, so add them here rather than in code. | `{}` Provides default lifecycle.
 `extra-config`   | Hash   | Raw RT config options emitted verbatim into `RT_SiteConfig.pm`. Keys must be valid RT names (e.g. `$Timezone`, `$DefaultQueue`, `$ParseNewMessageForTicketCcs`). String values are quoted; numbers/literals are emitted as-is; keys beginning with `%` are treated as Perl literals (e.g. `%FullTextSearch`). Do **not** set `_Plugins`/`_Lifecycles` here — use `plugins`/`lifecycles`. | `{}`
@@ -81,8 +80,6 @@ Name             | Type   | Description                                         
   "mail-domain": "example.org",
   "user": "support",
   "failed-email": "systems@example.org",
-  "forward-email": "archive@gapps.example.org",
-  "forward-user": "support-gmail",
   "logo": {
     "url": "https://example.org/img/logo.png",
     "link": "https://support.example.org/",

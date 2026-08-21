@@ -4,8 +4,6 @@
   "root-password": "my-epic-rt",
   "user": "support",
   "mail-domain": "example.org",
-  "forward-email": "root@example.org",
-  "forward-user": "support-gmail",
   "logo": {
     "url": "file:///tmp/osl-rt-test-logo.png",
     "link": "https://support.example.org/",
@@ -13,7 +11,8 @@
   },
   "queues": {
     "Support": "support",
-    "Systems Team": "systems"
+    "Systems Team": "systems",
+    "Abuse": "abuse"
   },
   "plugins": [
     "RT::Extension::REST2",

@@ -70,11 +70,10 @@ action :create do
   # either the fqdn or the public domain, so build a list of both for matching.
   mail_domain = osl_rt_mail_domain(rt_config)
   domains = osl_rt_domains(rt_config)
-
-  # Optional off-box forwarding. 'forward-email' alone: the RT user CCs a copy.
-  # Plus 'forward-user': a dedicated user gets the copy and forwards it (two-user split).
-  forward_email = rt_config['forward-email']
-  forward_user = rt_config['forward-user']
+  # Regex group matching any delivery domain, with literal dots escaped
+  domain_match = "(#{domains.map { |d| d.gsub('.', '\\.') }.join('|')})"
+  # Queue emails whose mail must never be diverted to .Spam/ (abuse-type queues)
+  spam_exempt = osl_rt_spam_exempt(rt_config)
 
   # Root Account
   template '/root/.rtrc' do
@@ -90,17 +89,28 @@ action :create do
     )
   end
 
-  # RT user always exists; the forward user only with the optional two-user split.
-  [rt_config['user'], forward_user].compact.each do |mail_user|
-    user mail_user do
-      manage_home true
-    end
+  mail_user = rt_config['user']
+  user mail_user do
+    manage_home true
+  end
 
-    # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
-    # doesn't fail to write its logfile ("Error while writing to ./from"). The
-    # mailgate pipe runs either way, but without this every delivery logs an error.
-    mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
-    directory "#{mail_home}/Mail" do
+  # procmail's MAILDIR/LOGFILE point at $HOME/Mail; create it so local delivery
+  # doesn't fail to write its logfile ("Error while writing to ./from"). Mail/
+  # itself is deliberately not a maildir: the rc file ends in a catch-all, so
+  # nothing may deliver to DEFAULT. The folders procmail files into are declared
+  # as full maildirs: procmail only builds a missing one when it can write the
+  # parent, and an undeliverable folder is not inert -- delivery falls through
+  # to the next recipe, ticketing the very mail the rule was meant to file.
+  # Every level is declared because `recursive` would apply the owner to the
+  # leaf only.
+  mail_home = mail_user == 'root' ? '/root' : "/home/#{mail_user}"
+  dirs = ["#{mail_home}/Mail"]
+  %w(.Spam .AutoReply).each do |folder|
+    dirs << "#{mail_home}/Mail/#{folder}"
+    dirs.concat(%w(cur new tmp).map { |sub| "#{mail_home}/Mail/#{folder}/#{sub}" })
+  end
+  dirs.each do |dir|
+    directory dir do
       owner mail_user
       group mail_user
       mode '0700'
@@ -242,30 +252,13 @@ action :create do
     group rt_config['user']
     variables(
       rt_queues: rt_config['queues'],
-      # Regex group matching any delivery domain, with literal dots escaped
-      domain_match: "(#{domains.map { |d| d.gsub('.', '\\.') }.join('|')})",
+      domain_match: domain_match,
       internal_domain: rt_config['internal-domain'],
       mail_domain: mail_domain,
+      spam_exempt: spam_exempt,
       # Where RT-unprocessable mail is forwarded (default local root).
-      error_email: rt_config['failed-email'] || 'root',
-      # CC off-box only in single-user mode; the forward user handles it otherwise.
-      forward_email: forward_user ? nil : forward_email
+      error_email: rt_config['failed-email'] || 'root'
     )
-  end
-
-  # Optional forward user (two-user split): gets a copy of queue mail and forwards it.
-  if forward_user
-    user_home = forward_user == 'root' ? '/root' : "/home/#{forward_user}"
-    template "#{user_home}/.procmailrc" do
-      source 'forward.procmailrc.erb'
-      cookbook 'osl-rt'
-      owner forward_user
-      group forward_user
-      variables(
-        mail_domain: mail_domain,
-        forward_email: forward_email
-      )
-    end
   end
 
   # Set up procmail in the default user's account
@@ -293,8 +286,18 @@ action :create do
   postfix_transports = osl_rt_postfix_transports(rt_config, domains)
   transport_maps = "#{osl_rt_postfix_db_type}:/etc/postfix/transport"
 
+  # local(8) stamps X-Original-To at delivery (procmail dispatches on it) but
+  # does not strip one the sender supplied: a forged header could pick the
+  # dispatch queue or defeat the spam exemption. Have cleanup drop them all;
+  # the real one is stamped after cleanup, at final delivery. regexp maps are
+  # read directly -- no postmap needed.
+  file '/etc/postfix/header_checks' do
+    content "/^X-Original-To:/ IGNORE\n"
+  end
+
   osl_postfix_server 'default' do
     main_settings(
+      'header_checks' => 'regexp:/etc/postfix/header_checks',
       'home_mailbox' => 'Mail/',
       'mailbox_command' => '/usr/bin/procmail',
       'mailbox_size_limit' => '0',

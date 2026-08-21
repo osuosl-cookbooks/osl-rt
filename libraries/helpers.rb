@@ -127,32 +127,31 @@ module OslRT
         [rt_config['fqdn'], osl_rt_mail_domain(rt_config)].uniq
       end
 
-      # Mail users that receive RT mail: the RT user, plus the optional forward
-      # user (the two-user split, where a dedicated user forwards a copy off-box).
-      def osl_rt_mail_users(rt_config)
-        [rt_config['user'], rt_config['forward-user']].compact
-      end
-
       # The queue emails (sorted, non-nil) used to build $RTAddressRegexp.
       def osl_rt_emails(rt_config)
         rt_config['queues'].values.compact.sort
       end
 
-      # Postfix aliases handed to osl_postfix_server. Self-alias each mail user so
-      # its mailbox (and ~/.procmailrc) gets RT mail, overriding any system default
-      # like "support: postmaster"; then map every queue email (and its -comment
-      # variant) to the mail user(s). A queue email that is also a mail user is
-      # overridden by the queue mapping (which fans out to the forward user too).
-      # osl_postfix_server seeds the OSL system aliases underneath these.
+      # Queue emails exempt from procmail's X-Spam-Status diversion, overridable
+      # via 'spam-exempt' in the data bag. Defaults to abuse/postmaster when they
+      # are queues: their mail quotes or bounces the very spam it reports, so it
+      # tags as spam by nature and must still be ticketed.
+      def osl_rt_spam_exempt(rt_config)
+        rt_config['spam-exempt'] || (osl_rt_emails(rt_config) & %w(abuse postmaster))
+      end
+
+      # Postfix aliases handed to osl_postfix_server. Self-alias the RT user so
+      # its mailbox (and ~/.procmailrc) gets RT mail, overriding any system
+      # default like "support: postmaster"; then map every queue email (and its
+      # -comment variant) to it. osl_postfix_server seeds the OSL system aliases
+      # underneath these.
       def osl_rt_postfix_aliases(rt_config)
-        mail_users = osl_rt_mail_users(rt_config)
-        target = mail_users.join(', ')
-        aliases = {}
-        mail_users.each { |u| aliases[u] = u }
+        mail_user = rt_config['user']
+        aliases = { mail_user => mail_user }
         rt_config['queues'].each_value do |email|
           next if email.nil?
-          aliases[email] = target
-          aliases["#{email}-comment"] = target
+          aliases[email] = mail_user
+          aliases["#{email}-comment"] = mail_user
         end
         aliases
       end

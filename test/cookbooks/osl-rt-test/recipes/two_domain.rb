@@ -1,5 +1,5 @@
-# Two-domain + forwarding + branding suite (mail-domain != fqdn, forward-user
-# split, logo). Sets its own data bag so the suite is self-contained.
+# Two-domain + branding suite (mail-domain != fqdn, logo). Sets its own data
+# bag so the suite is self-contained.
 node.default['osl-rt-test']['site'] = 'support.example.org'
 node.default['osl-rt-test']['data-bag'] = 'two-domain'
 
