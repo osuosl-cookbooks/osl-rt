@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+4.0.0 (2026-08-21)
+------------------
+- Stop autoresponder loops and harden RT mail handling
+
 3.0.1 (2026-08-05)
 ------------------
 - Match same perl dep as osl-admin
