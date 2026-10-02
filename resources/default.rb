@@ -64,7 +64,9 @@ action :create do
   include_recipe 'yum-osuosl'
   include_recipe 'perl'
 
-  package %w(request-tracker mutt procmail)
+  # request-tracker-selinux carries RT's SELinux policy; package never upgrades,
+  # so name it for hosts that installed request-tracker before it existed.
+  package %w(request-tracker request-tracker-selinux mutt procmail)
 
   # Database client + Perl DBD driver for the configured engine. Postgres needs
   # DBD::Pg and the psql client (used by the DB guards below); MySQL pulls in the

@@ -1,3 +1,6 @@
+# kitchen.yml sets osl-selinux enforcing, so RT is proven under its policy
+include_recipe 'osl-selinux'
+
 # PostgreSQL suite: same as the standard suite but backed by Postgres. Uses its
 # own data bag (db.type = Pg) so it is self-contained alongside the MySQL suite.
 node.default['osl-rt-test']['data-bag'] = 'postgresql'

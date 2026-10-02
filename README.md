@@ -34,6 +34,18 @@ deployments, override it on the node:
 node.default['osl-apache']['mod_remoteip']['trusted_proxy'] = %w(10.0.0.1)
 ```
 
+### SELinux
+
+RT's SELinux policy ships in the OSL `request-tracker-selinux` RPM, which this
+cookbook installs alongside `request-tracker`:
+
+- the `request_tracker` module
+- `/opt/rt/var` labelled `httpd_sys_rw_content_t`
+- the `httpd_can_sendmail` and `httpd_can_network_connect_db` booleans
+
+The cookbook sets no policy of its own. The kitchen suites converge with
+`osl-selinux` enforcing and fail on any `httpd_t` or `procmail_t` denial.
+
 ## Usage
 
 osl-rt is resource-first: declare the [`osl_request_tracker`](#resources)

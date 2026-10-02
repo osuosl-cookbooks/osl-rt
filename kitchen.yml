@@ -16,6 +16,9 @@ provisioner:
   deprecations_as_errors: true
   data_bags_path: test/integration/data_bags
   encrypted_data_bag_secret_key_path: test/integration/encrypted_data_bag_secret
+  attributes:
+    osl-selinux:
+      enforcing: true
 
 platforms:
   - name: almalinux-8

@@ -109,6 +109,8 @@ describe 'osl_request_tracker' do
         expect { chef_run }.to_not raise_error
       end
 
+      it { expect(chef_run).to install_package(%w(request-tracker request-tracker-selinux mutt procmail)) }
+
       # Recipe dependencies pulled in by the resource
       %w(
         osl-apache osl-apache::mod_remoteip osl-apache::mod_perl

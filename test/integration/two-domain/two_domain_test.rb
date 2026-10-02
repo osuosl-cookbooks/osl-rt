@@ -209,3 +209,29 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subje
   its('stdout') { should_not match(/two-domain-autoreply-test/) }
   its('stdout') { should_not match(/forged-xoriginalto-test/) }
 end
+
+# request-tracker-selinux: RT runs under its own policy, enforcing. Last in the
+# file, so the mail and ticket checks above have exercised it.
+describe selinux do
+  it { should be_enforcing }
+end
+
+describe selinux.modules.where(name: 'request_tracker') do
+  it { should be_installed }
+  it { should be_enabled }
+end
+
+%w(httpd_can_sendmail httpd_can_network_connect_db).each do |b|
+  describe selinux.booleans.where(name: b) do
+    it { should be_on }
+  end
+end
+
+describe file('/opt/rt/var/mason_data') do
+  its('selinux_label') { should match /:httpd_sys_rw_content_t:/ }
+end
+
+# --input-logs: InSpec's stdin is a pipe, which ausearch would otherwise read
+describe command("ausearch --input-logs -m avc,user_avc -ts boot -i 2>/dev/null | grep -E 'scontext=[^ ]*:(httpd_t|procmail_t):' | grep 'permissive=0'") do
+  its('stdout') { should be_empty }
+end
