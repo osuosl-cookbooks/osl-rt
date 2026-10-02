@@ -172,6 +172,23 @@ osl_request_tracker 'requests.openpowerfoundation.org' do
 end
 ```
 
+## Testing unpublished request-tracker RPMs
+
+To converge against `request-tracker` RPMs built in `rpms/request-tracker`
+before they're published, run `make repo` there, then set `OSL_RT_LOCAL_REPO`
+for kitchen with the openstack driver:
+
+```sh
+OSL_RT_LOCAL_REPO=1 kitchen test two-domain-almalinux-9
+```
+
+A `pre_converge` hook in `kitchen.openstack.yml` rsyncs
+`REPO/<release>` (from `~/git/osl/rpms/request-tracker`, or `OSL_RT_REPO`) to
+the instance. It then installs its `request-tracker-local.repo`, whose
+`priority=1` wins over the published repo. Without a build it prints a note and
+the published RPMs are used. Start from fresh instances, because the resource
+installs RT but never upgrades it.
+
 ## Contributing
 
 1. Fork the repository on Github

@@ -38,3 +38,20 @@ platforms:
     transport:
       username: almalinux
 
+# With OSL_RT_LOCAL_REPO set, install request-tracker from the local
+# rpms/request-tracker build (make repo) instead of the published repo
+<% if ENV['OSL_RT_LOCAL_REPO'] %>
+lifecycle:
+  pre_converge:
+    - local: >-
+        d=<%= ENV['OSL_RT_REPO'] || "#{ENV['HOME']}/git/osl/rpms/request-tracker/REPO" %>/${KITCHEN_PLATFORM_NAME#almalinux-};
+        if [ -d "$d/x86_64" ]; then
+        rsync -a --delete -e "ssh -i <%= ENV['OS_PRIVATE_SSH_KEY'] %> -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        "$d/" "almalinux@${KITCHEN_INSTANCE_HOSTNAME}:/tmp/request-tracker/";
+        else echo "no local request-tracker repo at $d; using the published RPMs"; fi
+      includes: [almalinux-9, almalinux-10]
+    - remote: >-
+        test -f /tmp/request-tracker/request-tracker-local.repo &&
+        sudo cp /tmp/request-tracker/request-tracker-local.repo /etc/yum.repos.d/ || true
+      includes: [almalinux-9, almalinux-10]
+<% end %>
