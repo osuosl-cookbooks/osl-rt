@@ -31,6 +31,7 @@ module OslRT
           'user' => 'support',
           'internal-domain' => 'rtlocal',
           'plugins' => [],
+          'clean-sessions' => '30D',
         }
       end
 
@@ -90,6 +91,9 @@ module OslRT
         # each queue's correspond address as the envelope sender instead so bounces
         # return to a real RT address. Overridable via 'extra-config' (merged below).
         config_options['$SetOutgoingMailFrom'] = 1
+
+        fulltext = osl_rt_fulltext_config(rt_config)
+        config_options['%FullTextSearch'] = fulltext if fulltext
 
         # Merge any raw RT options provided in the data bag (e.g. '$Timezone',
         # '$DefaultQueue', '%FullTextSearch'). These are emitted verbatim by
@@ -219,6 +223,49 @@ module OslRT
               #{rt_config['db']['name']}
           EOC
         end
+      end
+
+      # Prefork workers to run: per_cpu per core, never under osl-apache's floor
+      # of 5 or over the memory-based limit it would pick on its own.
+      def osl_rt_max_workers(cpus, per_cpu, memory_limit)
+        [[cpus.to_i * per_cpu.to_i, 5].max, memory_limit].min
+      end
+
+      # %FullTextSearch for an index built by rt-setup-fulltext-index, using its
+      # default table (and column on Pg); nil leaves RT's unindexed default.
+      def osl_rt_fulltext_config(rt_config)
+        return unless rt_config['fulltext-index']
+
+        config = "Enable => 1, Indexed => 1, Table => 'AttachmentsIndex'"
+        config += ", Column => 'ContentIndex'" if osl_rt_pg?(rt_config)
+        config
+      end
+
+      # rt-clean-sessions command; the age reaches a shell, so only <NUM>[HDMY].
+      # --skip-user keeps every session newer than the age, not one per user.
+      def osl_rt_clean_sessions_command(age)
+        raise ArgumentError, "osl-rt: invalid clean-sessions age '#{age}'" unless age.to_s.match?(/\A\d+[HDMY]?\z/)
+
+        "/opt/rt/sbin/rt-clean-sessions --older #{age} --skip-user"
+      end
+
+      # Where certificate_manage puts the files for a certificates item on EL.
+      def osl_rt_ssl_files(id)
+        {
+          cert_file: "/etc/pki/tls/certs/#{id}.pem",
+          cert_key: "/etc/pki/tls/private/#{id}.key",
+          cert_chain: "/etc/pki/tls/certs/#{id}-bundle.crt",
+        }
+      end
+
+      # Port 80 redirects to HTTPS, except the internal name rt-mailgate posts
+      # to; the vhost includes RT, so a plain Redirect would bounce mail intake.
+      def osl_rt_https_redirect(rt_config)
+        [
+          'RewriteEngine On',
+          "RewriteCond %{HTTP_HOST} !^#{Regexp.escape(rt_config['internal-domain'])}$ [NC]",
+          "RewriteRule ^ https://#{rt_config['fqdn']}%{REQUEST_URI} [R=301,L]",
+        ]
       end
 
       # The plugin list to load, dropping any that ship in core on RT 5 (EL10+).

@@ -1,4 +1,5 @@
-# Verifies the two-domain (mail-domain != fqdn) + logo setup.
+# Verifies the two-domain (mail-domain != fqdn) + logo setup, plus TLS on the
+# host, workers-per-cpu, fulltext-index and clean-sessions.
 
 describe service('httpd') do
   it { should be_enabled }
@@ -10,13 +11,46 @@ describe service('postfix') do
   it { should be_running }
 end
 
-# SSL terminated upstream; backend is HTTP-only with mod_remoteip.
+# ssl-certificate: TLS on the host itself.
 describe port 443 do
-  it { should_not be_listening }
+  it { should be_listening }
+end
+
+describe x509_certificate('/etc/pki/tls/certs/wildcard.pem') do
+  it { should be_certificate }
+end
+
+describe http('https://127.0.0.1', headers: { Host: 'support.example.org' }, ssl_verify: false) do
+  its('status') { should cmp 200 }
+  its('headers.Set-Cookie') { should match /RT_SID_support.example.org.443/ }
+end
+
+describe http('http://127.0.0.1/Search/Simple.html', headers: { Host: 'support.example.org' }) do
+  its('status') { should cmp 301 }
+  its('headers.Location') { should eq 'https://support.example.org/Search/Simple.html' }
+end
+
+# rt-mailgate posts to http://rtlocal, so the internal name is never redirected.
+describe http('http://127.0.0.1', headers: { Host: 'rtlocal' }) do
+  its('status') { should cmp 200 }
 end
 
 describe apache_conf('/etc/httpd/mods-available/remoteip.conf') do
   its('RemoteIPHeader') { should cmp 'X-Forwarded-For' }
+end
+
+# workers-per-cpu 3: never more than three prefork RT interpreters per core.
+describe apache_conf('/etc/httpd/mods-enabled/mpm_prefork.conf') do
+  its('MaxRequestWorkers') { should cmp <= command('nproc').stdout.to_i * 3 }
+  its('ServerLimit') { should cmp <= command('nproc').stdout.to_i * 3 }
+end
+
+describe file('/etc/cron.d/rt-clean-sessions') do
+  its('content') { should match %r{^15 3 \* \* \* apache /opt/rt/sbin/rt-clean-sessions --older 7D --skip-user$} }
+end
+
+describe file('/etc/cron.d/rt-fulltext-indexer') do
+  its('content') { should match %r{^\*/10 \* \* \* \* apache /opt/rt/sbin/rt-fulltext-indexer --quiet$} }
 end
 
 # RT config: web/host identity uses the fqdn, mail identity uses mail-domain.
@@ -33,6 +67,8 @@ describe file('/opt/rt/etc/RT_SiteConfig.pm') do
     "Set($LogoURL, '/static/images/osl-rt-test-logo.png');",
     "Set($LogoLinkURL, 'https://support.example.org/');",
     "Set($LogoAltText, 'Example Support');",
+    'Set($WebPort, 443);',
+    "Set(%FullTextSearch, Enable => 1, Indexed => 1, Table => 'AttachmentsIndex');",
   ].each do |line|
     its('content') { should include line }
   end
@@ -127,6 +163,17 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' 
 end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
+  its('exit_status') { should eq 0 }
+  its('stdout') { should match(/two-domain-test/) }
+end
+
+# Index the new ticket as the cron would (from a directory apache can read),
+# then find it by its body. 'help' is a MyISAM full-text stopword; 'setup' is not.
+describe command 'runuser -u apache -- env -C / /opt/rt/sbin/rt-fulltext-indexer --quiet' do
+  its('exit_status') { should eq 0 }
+end
+
+describe command %(HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject "Content LIKE 'setup'") do
   its('exit_status') { should eq 0 }
   its('stdout') { should match(/two-domain-test/) }
 end

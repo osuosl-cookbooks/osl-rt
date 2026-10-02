@@ -4,6 +4,11 @@
   "root-password": "my-epic-rt",
   "user": "support",
   "mail-domain": "example.org",
+  "ssl-certificate": "wildcard",
+  "web-port": 443,
+  "workers-per-cpu": 3,
+  "fulltext-index": true,
+  "clean-sessions": "7D",
   "logo": {
     "url": "file:///tmp/osl-rt-test-logo.png",
     "link": "https://support.example.org/",

@@ -8,6 +8,7 @@ chef_version      '>= 16.0'
 description       'Installs/Configures an instance of Request Tracker'
 version           '4.0.1'
 
+depends 'certificate'
 depends 'osl-apache'
 depends 'osl-mysql'
 depends 'osl-postgresql'

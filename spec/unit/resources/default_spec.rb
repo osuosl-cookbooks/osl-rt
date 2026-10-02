@@ -436,7 +436,210 @@ describe 'osl_request_tracker' do
           cookbook: 'osl-rt'
         )
       end
+
+      # Session cleanup is on by default; --skip-user keeps other browsers logged in.
+      it do
+        expect(chef_run).to create_cron_d('rt-clean-sessions').with(
+          minute: '15',
+          hour: '3',
+          user: 'apache',
+          command: '/opt/rt/sbin/rt-clean-sessions --older 30D --skip-user'
+        )
+      end
+
+      # Every other key is opt-in: a bag without them keeps HTTP-only, unindexed
+      # search and osl-apache's own worker sizing.
+      it { expect(chef_run).to delete_cron_d('rt-fulltext-indexer') }
+      it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('%FullTextSearch') }
+      it { expect(chef_run).to_not create_certificate_manage('rt-wildcard') }
+      it { expect(chef_run.apache_app('example.org').ssl_enable).to be false }
+      it { expect(chef_run.apache_app('example.org').directive_http).to be_nil }
+      it { expect(chef_run.node['osl-apache']['listen']).to eq %w(80) }
+      it { expect(chef_run.node['osl-apache']['maxrequestworkers']).to be_nil }
+      it { expect(chef_run.node['osl-apache']['serverlimit']).to be_nil }
     end
+  end
+
+  # TLS on the host, cores-based workers, full-text indexing and a custom
+  # session age, as support.osuosl.org uses them.
+  context 'with tls, workers-per-cpu, fulltext-index and clean-sessions' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+    automatic_attributes['cpu']['total'] = 4
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'ssl-certificate': 'wildcard',
+                                                                    'workers-per-cpu': 3,
+                                                                    'fulltext-index': true,
+                                                                    'clean-sessions': '7D',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect(chef_run.node['osl-apache']['listen']).to eq %w(80 443) }
+    it { expect(chef_run.node['osl-apache']['maxrequestworkers']).to eq 12 }
+    it { expect(chef_run.node['osl-apache']['serverlimit']).to eq 12 }
+
+    describe 'osl_rt_max_workers' do
+      # The converge loads the cookbook's libraries.
+      let(:helpers) { chef_run && Class.new { include OslRT::Cookbook::Helpers }.new }
+
+      # osl-apache never runs fewer than 5 prefork workers
+      it { expect(helpers.osl_rt_max_workers(1, 3, 50)).to eq 5 }
+      # never more than the memory-based limit
+      it { expect(helpers.osl_rt_max_workers(16, 3, 30)).to eq 30 }
+    end
+
+    it do
+      expect(chef_run).to create_certificate_manage('rt-wildcard').with(
+        search_id: 'wildcard',
+        cert_file: 'wildcard.pem',
+        key_file: 'wildcard.key',
+        chain_file: 'wildcard-bundle.crt'
+      )
+    end
+
+    it { expect(chef_run.certificate_manage('rt-wildcard')).to notify('apache2_service[osuosl]').to(:reload) }
+
+    # rt-mailgate posts to http://rtlocal, so that name must not be redirected.
+    it do
+      expect(chef_run).to create_apache_app('example.org').with(
+        ssl_enable: true,
+        cert_file: '/etc/pki/tls/certs/wildcard.pem',
+        cert_key: '/etc/pki/tls/private/wildcard.key',
+        cert_chain: '/etc/pki/tls/certs/wildcard-bundle.crt',
+        directive_http: [
+          'RewriteEngine On',
+          'RewriteCond %{HTTP_HOST} !^rtlocal$ [NC]',
+          'RewriteRule ^ https://example.org%{REQUEST_URI} [R=301,L]',
+        ]
+      )
+    end
+
+    it do
+      expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+        "Set(%FullTextSearch, Enable => 1, Indexed => 1, Table => 'AttachmentsIndex');"
+      )
+    end
+
+    it do
+      expect(chef_run).to create_cron_d('rt-fulltext-indexer').with(
+        minute: '*/10',
+        user: 'apache',
+        command: '/opt/rt/sbin/rt-fulltext-indexer --quiet'
+      )
+    end
+
+    it do
+      expect(chef_run).to create_cron_d('rt-clean-sessions').with(
+        command: '/opt/rt/sbin/rt-clean-sessions --older 7D --skip-user'
+      )
+    end
+  end
+
+  # Postgres keeps the index in a column of its own table.
+  context 'with fulltext-index on a postgresql backend' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/to_regclass/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db': {
+                                                                      'type': 'Pg',
+                                                                      'host': 'localhost',
+                                                                      'name': 'rt',
+                                                                    },
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'fulltext-index': true,
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it do
+      expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+        "Set(%FullTextSearch, Enable => 1, Indexed => 1, Table => 'AttachmentsIndex', Column => 'ContentIndex');"
+      )
+    end
+  end
+
+  # An explicit extra-config %FullTextSearch wins over the generated one, and
+  # clean-sessions false removes the cron.
+  context 'with an extra-config FullTextSearch and clean-sessions disabled' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'fulltext-index': true,
+                                                                    'clean-sessions': false,
+                                                                    'extra-config': {
+                                                                      '%FullTextSearch': "Enable => 1, Indexed => 1, Table => 'RTIndex'",
+                                                                    },
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it do
+      expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+        .with_content("Set(%FullTextSearch, Enable => 1, Indexed => 1, Table => 'RTIndex');")
+    end
+    it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("'AttachmentsIndex'") }
+    it { expect(chef_run).to delete_cron_d('rt-clean-sessions') }
+  end
+
+  # The age is interpolated into a cron command, so anything else is refused.
+  context 'with an invalid clean-sessions age' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'clean-sessions': '30D; rm -rf /',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect { chef_run }.to raise_error(ArgumentError, /invalid clean-sessions age/) }
   end
 
   # Optional branding (custom logo)
