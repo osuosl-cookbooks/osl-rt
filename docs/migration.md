@@ -106,7 +106,7 @@ Copy `rt-seed.sql.gz` into `test/cookbooks/osl-rt-test/files/` and set
 `4.4.4`). Then:
 
 ```bash
-KITCHEN_LOCAL_YAML=kitchen.dokken.yml cinc exec kitchen verify migration-almalinux-10
+KITCHEN_LOCAL_YAML=kitchen.dokken.yml cinc exec kitchen verify migration-almalinux-9
 ```
 
 > Tip: a sanitized `mysqldump` of an existing production RT works too, as long as it
