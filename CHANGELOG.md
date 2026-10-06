@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+4.0.1 (2026-10-06)
+------------------
+- Keep the public mail-domain out of mydestination
+
 4.0.0 (2026-08-21)
 ------------------
 - Stop autoresponder loops and harden RT mail handling
