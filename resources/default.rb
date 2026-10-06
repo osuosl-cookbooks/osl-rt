@@ -303,7 +303,9 @@ action :create do
       'mailbox_size_limit' => '0',
       'message_size_limit' => '102400000',
       'transport_maps' => transport_maps,
-      'mydestination' => "$myhostname, localhost.$mydomain, localhost, #{domains.join(', ')}",
+      # Only the fqdn is local: the transports route queue mail at mail-domain, and
+      # anyone else there (autoreply recipients) must go out through the relay
+      'mydestination' => "$myhostname, localhost.$mydomain, localhost, #{rt_config['fqdn']}",
       'mydomain' => rt_config['fqdn']
     )
     access(
