@@ -51,7 +51,7 @@ Name             | Type   | Description                                         
 `db-password`    | String | The password of the DB user                                  | nil
 `root-password`  | String | The password used for the root account on RT                 | nil
 `fqdn`           | String | **Set by the `osl_request_tracker` resource name**, not the data bag (any `fqdn` key here is ignored). The site's web/host domain. | resource name
-`mail-domain`    | String | The public email domain for queue addresses, when it differs from the host `fqdn` (e.g. `example.org` while the site is `support.example.org`). Mail to either domain is accepted. | `fqdn`
+`mail-domain`    | String | The public email domain for queue addresses, when it differs from the host `fqdn` (e.g. `example.org` while the site is `support.example.org`). Queue mail at either domain is delivered to RT; other addresses at `mail-domain` aren't local and go out through the relay. | `fqdn`
 `web-port`       | Integer| Sets RT's `$WebPort`. Needed when TLS terminates upstream (e.g. HAProxy) and RT serves plain HTTP: set `443` so RT treats itself as HTTPS, otherwise it assumes `http://<fqdn>:80` and rejects HTTPS form posts with a "possible cross-site request forgery" error. | RT default (`80`)
 `web-base-url`   | String | Sets RT's `$WebBaseURL` explicitly. Only needed when the public URL isn't derivable from `fqdn` + `web-port` (a different public host, a `WebPath` prefix, etc.); otherwise RT derives it. | derived
 `user`           | String | The user account that is responsible for being the default email | `support`

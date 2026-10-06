@@ -30,11 +30,11 @@ describe 'osl_request_tracker' do
   # Inject the resource into a blank base recipe. The name is the site fqdn
   # ('example.org'); the rest of the config comes from the stubbed
   # request-tracker/default data bag item (data_bag defaults to 'default').
-  def converge_rt(runner)
+  def converge_rt(runner, fqdn = 'example.org')
     runner.converge('osl-rt-test::blank') do
       recipe = Chef::Recipe.new('test', '_test', runner.run_context)
       recipe.instance_exec do
-        osl_request_tracker 'example.org'
+        osl_request_tracker fqdn
       end
     end
   end
@@ -510,6 +510,45 @@ describe 'osl_request_tracker' do
     it do
       expect(chef_run).to render_file('/home/support/.procmailrc').with_content(
         /^\* ! \^X-Original-To: \(abuse\|postmaster\)\(-comment\)\?@\(example\\\.org\)\n\* \^X-Spam-Status: Yes$/
+      )
+    end
+  end
+
+  # A public mail-domain apart from the fqdn: queue mail at both domains is
+  # routed to RT by transport, but only the fqdn is a local destination.
+  context 'with a separate mail-domain' do
+    platform ALMA_10[:platform], ALMA_10[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner, 'support.example.org') }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
+      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'mail-domain': 'example.org',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it do
+      expect(chef_run).to create_osl_postfix_server('default').with(
+        main_settings: hash_including(
+          'mydestination' => '$myhostname, localhost.$mydomain, localhost, support.example.org',
+          'mydomain' => 'support.example.org'
+        ),
+        transports: {
+          'support@support.example.org' => 'local:$myhostname',
+          'support@example.org' => 'local:$myhostname',
+          'support-comment@support.example.org' => 'local:$myhostname',
+          'support-comment@example.org' => 'local:$myhostname',
+        }
       )
     end
   end

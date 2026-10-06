@@ -100,10 +100,18 @@ describe file('/etc/postfix/transport') do
   end
 end
 
+# Only the fqdn is local; queue mail at example.org reaches RT by transport
 describe postfix_conf('/etc/postfix/main.cf') do
   its('mydestination') do
-    should eq '$myhostname, localhost.$mydomain, localhost, support.example.org, example.org'
+    should eq '$myhostname, localhost.$mydomain, localhost, support.example.org'
   end
+end
+
+# Anyone else at example.org goes to the relay rather than bouncing locally:
+# probe a non-queue address and wait for postfix to log where it routed it
+describe command(%q(sh -c 'sendmail -bv not-a-queue@example.org; for i in $(seq 30); do journalctl -u postfix --no-pager | grep -q "to=<not-a-queue@example.org>" && break; sleep 1; done; journalctl -u postfix --no-pager | grep "to=<not-a-queue@example.org>"')) do
+  its('stdout') { should match /to=<not-a-queue@example\.org>/ }
+  its('stdout') { should_not match /relay=local/ }
 end
 
 # Mail round-trip: a ticket to the mail-domain reaches RT.
