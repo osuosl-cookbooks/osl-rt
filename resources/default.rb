@@ -186,7 +186,7 @@ action :create do
         --dba-password #{rt_config['db-password']} \
         --skip-create
     EOC
-    not_if osl_rt_db_guard(rt_config, osl_rt_schema_present_query(rt_config))
+    not_if { osl_rt_db_row?(rt_config, osl_rt_schema_present_query(rt_config)) }
     sensitive true
     notifies :run, 'execute[Set root password]', :immediately
   end
@@ -269,7 +269,7 @@ action :create do
         name="#{pt}" correspondaddress="#{email}@#{mail_domain}" \
         commentaddress="#{email}-comment@#{mail_domain}"
       EOC
-      not_if osl_rt_db_guard(rt_config, "SELECT 1 FROM Queues WHERE Name='#{pt}'")
+      not_if { osl_rt_db_row?(rt_config, "SELECT 1 FROM Queues WHERE Name='#{pt}'") }
       sensitive true
     end
   end
