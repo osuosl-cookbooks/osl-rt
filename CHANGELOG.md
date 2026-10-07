@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+4.1.0 (2026-10-07)
+------------------
+- Add TLS, worker cap, full-text and session options
+
 4.0.1 (2026-10-06)
 ------------------
 - Keep the public mail-domain out of mydestination
