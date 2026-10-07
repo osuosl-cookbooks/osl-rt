@@ -229,7 +229,7 @@ describe command 'echo "Hello, I need help creating a Request Tracker instance" 
 end
 
 # mailx returns once postfix queues the message; wait for rt-mailgate to ticket it
-describe command %q{bash -c 'for i in $(seq 1 30); do HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject | grep -q support-test && exit 0; sleep 1; done; exit 1'} do
+describe command "bash -c 'for i in $(seq 1 30); do HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject | grep -q support-test && exit 0; sleep 1; done; exit 1'" do
   its('exit_status') { should eq 0 }
 end
 
