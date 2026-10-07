@@ -16,6 +16,11 @@ describe port 443 do
   it { should be_listening }
 end
 
+describe iptables do
+  it { should have_rule('-A http -p tcp -m tcp --dport 80 -j ACCEPT') }
+  it { should have_rule('-A http -p tcp -m tcp --dport 443 -j ACCEPT') }
+end
+
 describe x509_certificate('/etc/pki/tls/certs/wildcard.pem') do
   it { should be_certificate }
 end

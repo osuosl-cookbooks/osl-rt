@@ -35,6 +35,25 @@ module OslRT
         }
       end
 
+      # The defaults merged with the instance's data bag item. The resource's fqdn
+      # is authoritative for the site identity, overriding the bag's.
+      def osl_rt_config(data_bag, fqdn)
+        rt_config = osl_rt_load_config_defaults.merge(data_bag_item('request-tracker', data_bag)) { |_key, _old_value, new_value| new_value }
+        rt_config['fqdn'] = fqdn
+        rt_config
+      end
+
+      # Ports Apache must listen on; TLS is served here only with ssl-certificate,
+      # otherwise it terminates upstream at HAProxy.
+      def osl_rt_listen(rt_config)
+        rt_config['ssl-certificate'] ? %w(80 443) : %w(80)
+      end
+
+      # Ports from osl-apache listen entries, which may be "address:port".
+      def osl_rt_listen_ports(listen)
+        listen.map { |entry| entry.to_s.split(':').last }
+      end
+
       # Initalize the configuration options given the attributes
       def osl_rt_init_config(rt_config)
         # The public email domain may differ from the host/web domain (fqdn).

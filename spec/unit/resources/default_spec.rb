@@ -30,13 +30,28 @@ describe 'osl_request_tracker' do
   # Inject the resource into a blank base recipe. The name is the site fqdn
   # ('example.org'); the rest of the config comes from the stubbed
   # request-tracker/default data bag item (data_bag defaults to 'default').
-  def converge_rt(runner, fqdn = 'example.org')
-    runner.converge('osl-rt-test::blank') do
+  # `before` recipes compile ahead of the resource and `after` recipes behind it.
+  def converge_rt(runner, fqdn = 'example.org', before: [], after: [])
+    runner.converge('osl-rt-test::blank', *before) do
       recipe = Chef::Recipe.new('test', '_test', runner.run_context)
       recipe.instance_exec do
         osl_request_tracker fqdn
+        after.each { |r| include_recipe r }
       end
     end
+  end
+
+  def stub_tls_bag
+    stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+    allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+    stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                  'db-username': 'rt-user',
+                                                                  'db-password': 'rt-password',
+                                                                  'root-password': 'my-epic-rt',
+                                                                  'user': 'support',
+                                                                  'ssl-certificate': 'wildcard',
+                                                                  'queues': { 'Support': 'support' },
+                                                                })
   end
 
   ALL_PLATFORMS.each do |p|
@@ -578,6 +593,48 @@ describe 'osl_request_tracker' do
         command: '/opt/rt/sbin/rt-clean-sessions --older 7D --skip-user'
       )
     end
+  end
+
+  # internal-web2's roles load osl-apache at compile time, after the RT recipe.
+  context 'with tls and osl-apache loaded after the resource' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner, after: %w(osl-apache::mon)) }
+
+    before { stub_tls_bag }
+
+    it { is_expected.to install_apache2_install('osuosl').with(listen: %w(80 443)) }
+    it { is_expected.to accept_osl_firewall_port('http').with(ports: %w(80 443)) }
+
+    it 'converges Apache and its modules ahead of the action' do
+      names = chef_run.resource_collection.all_resources.map(&:to_s)
+      rt = names.index('osl_request_tracker[example.org]')
+      expect(names.index('apache2_install[osuosl]')).to be < rt
+      expect(names.index('apache2_module[remoteip]')).to be < rt
+    end
+  end
+
+  context 'with tls and osl-apache loaded before the resource' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner, before: %w(osl-apache)) }
+
+    before { stub_tls_bag }
+
+    it do
+      expect { chef_run }.to raise_error(RuntimeError, /needs Apache to listen on 443, but osl-apache was loaded first/)
+    end
+  end
+
+  context 'with tls, osl-apache loaded first and listen already set' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+    default_attributes['osl-apache']['listen'] = %w(80 443)
+
+    cached(:chef_run) { converge_rt(chef_runner, before: %w(osl-apache)) }
+
+    before { stub_tls_bag }
+
+    it { is_expected.to install_apache2_install('osuosl').with(listen: %w(80 443)) }
   end
 
   # Postgres keeps the index in a column of its own table.
