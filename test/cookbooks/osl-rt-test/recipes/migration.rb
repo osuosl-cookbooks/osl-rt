@@ -1,3 +1,6 @@
+# kitchen.yml sets osl-selinux enforcing, so RT is proven under its policy
+include_recipe 'osl-selinux'
+
 # Migration suite: import an older-RT dump before osl-rt converges, then upgrade.
 # Exercises the DB-state guards (init/existing queue/root preserved), creation of
 # the missing "Migrated Queue", and db-upgrade. The seed fixture

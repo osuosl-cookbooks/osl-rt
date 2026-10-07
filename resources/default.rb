@@ -23,6 +23,7 @@ unified_mode true
 
 action_class do
   include OslRT::Cookbook::Helpers
+  include OslApache::Cookbook::Helpers
 end
 
 # The site's fqdn. Authoritative -- overrides any 'fqdn' in the data bag -- and
@@ -36,10 +37,6 @@ property :fqdn, String, name_property: true
 property :data_bag, String, default: 'default'
 
 action :create do
-  # TLS terminates upstream at HAProxy; serve HTTP only, recover client IP via mod_remoteip.
-  node.default['osl-apache']['listen'] = %w(80)
-  node.default['osl-apache']['worker_mem'] = 215
-
   # Initalize the attributes, and overwrite the defaults. Loaded up front so the
   # DB-engine-specific setup below (client packages, DB guards) can branch on the
   # configured database type.
@@ -48,6 +45,18 @@ action :create do
   # The resource's fqdn is authoritative for the site identity, overriding the
   # data bag's (if any).
   rt_config['fqdn'] = new_resource.fqdn
+  ssl_cert = rt_config['ssl-certificate']
+
+  # TLS terminates upstream at HAProxy unless the bag names a certificate to
+  # serve here; either way mod_remoteip recovers the client IP behind a proxy.
+  node.default['osl-apache']['listen'] = ssl_cert ? %w(80 443) : %w(80)
+
+  # Every prefork child is a full RT interpreter, so size by cores, not memory.
+  if rt_config['workers-per-cpu']
+    workers = osl_rt_max_workers(node['cpu']['total'], rt_config['workers-per-cpu'], osl_apache_maxrequestworkers)
+    node.default['osl-apache']['maxrequestworkers'] = workers
+    node.default['osl-apache']['serverlimit'] = workers
+  end
 
   include_recipe 'osl-apache'
   include_recipe 'osl-apache::mod_remoteip'
@@ -55,7 +64,9 @@ action :create do
   include_recipe 'yum-osuosl'
   include_recipe 'perl'
 
-  package %w(request-tracker mutt procmail)
+  # request-tracker-selinux carries RT's SELinux policy; package never upgrades,
+  # so name it for hosts that installed request-tracker before it existed.
+  package %w(request-tracker request-tracker-selinux mutt procmail)
 
   # Database client + Perl DBD driver for the configured engine. Postgres needs
   # DBD::Pg and the psql client (used by the DB guards below); MySQL pulls in the
@@ -209,6 +220,18 @@ action :create do
     end
   end
 
+  if ssl_cert
+    certificate_manage "rt-#{ssl_cert}" do
+      search_id ssl_cert
+      cert_file "#{ssl_cert}.pem"
+      key_file "#{ssl_cert}.key"
+      chain_file "#{ssl_cert}-bundle.crt"
+      notifies :reload, 'apache2_service[osuosl]'
+    end
+  end
+  ssl_files = osl_rt_ssl_files(ssl_cert) if ssl_cert
+  https_redirect = osl_rt_https_redirect(rt_config) if ssl_cert
+
   # Set up web app
   apache_app rt_config['fqdn'] do
     directory '/opt/rt/share/html'
@@ -220,6 +243,13 @@ action :create do
     cookbook_include 'osl-rt'
     include_params('domain': rt_config['fqdn'])
     server_aliases [rt_config['internal-domain']]
+    if ssl_cert
+      ssl_enable true
+      cert_file ssl_files[:cert_file]
+      cert_key ssl_files[:cert_key]
+      cert_chain ssl_files[:cert_chain]
+      directive_http https_redirect
+    end
   end
 
   # Forcefully reload Apache during the initial run, in order to allow for setting up the queues properly.
@@ -318,5 +348,23 @@ action :create do
     transports postfix_transports
     use_access_maps true
     use_transport_maps true
+  end
+
+  # RT never expires sessions on its own; 'clean-sessions' false turns this off.
+  clean_sessions = rt_config['clean-sessions']
+  cron_d 'rt-clean-sessions' do
+    minute '15'
+    hour '3'
+    user 'apache'
+    command osl_rt_clean_sessions_command(clean_sessions) if clean_sessions
+    action clean_sessions ? :create : :delete
+  end
+
+  # Needs the index table from a one-time manual rt-setup-fulltext-index run.
+  cron_d 'rt-fulltext-indexer' do
+    minute '*/10'
+    user 'apache'
+    command '/opt/rt/sbin/rt-fulltext-indexer --quiet'
+    action rt_config['fulltext-index'] ? :create : :delete
   end
 end

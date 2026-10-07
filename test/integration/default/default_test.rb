@@ -28,9 +28,31 @@ end
   end
 end
 
+describe port 443 do
+  it { should_not be_listening }
+end
+
 # mod_remoteip restores the real client IP from the HAProxy X-Forwarded-For header.
 describe apache_conf('/etc/httpd/mods-available/remoteip.conf') do
   its('RemoteIPHeader') { should cmp 'X-Forwarded-For' }
+end
+
+# Session cleanup is on by default; full-text indexing is opt-in.
+describe file('/etc/cron.d/rt-clean-sessions') do
+  its('content') { should match %r{^15 3 \* \* \* apache /opt/rt/sbin/rt-clean-sessions --older 30D --skip-user$} }
+end
+
+describe file('/etc/cron.d/rt-fulltext-indexer') do
+  it { should_not exist }
+end
+
+describe file('/opt/rt/etc/RT_SiteConfig.pm') do
+  its('content') { should_not match /FullTextSearch/ }
+end
+
+# rt-clean-sessions runs as apache, which must be able to read RT's config.
+describe command 'runuser -u apache -- env -C / /opt/rt/sbin/rt-clean-sessions --older 30D --skip-user' do
+  its('exit_status') { should eq 0 }
 end
 
 describe http('http://127.0.0.1', headers: { Host: 'example.org' }, ssl_verify: false) do
@@ -300,4 +322,30 @@ end
 describe command %q{perl -I/opt/rt/lib -e 'use RT; RT::LoadConfig(); print RT->Config->Get("Timezone")'} do
   its('exit_status') { should eq 0 }
   its('stdout') { should cmp 'US/Pacific' }
+end
+
+# request-tracker-selinux: RT runs under its own policy, enforcing. Last in the
+# file, so the mail and ticket checks above have exercised it.
+describe selinux do
+  it { should be_enforcing }
+end
+
+describe selinux.modules.where(name: 'request_tracker') do
+  it { should be_installed }
+  it { should be_enabled }
+end
+
+%w(httpd_can_sendmail httpd_can_network_connect_db).each do |b|
+  describe selinux.booleans.where(name: b) do
+    it { should be_on }
+  end
+end
+
+describe file('/opt/rt/var/mason_data') do
+  its('selinux_label') { should match /:httpd_sys_rw_content_t:/ }
+end
+
+# --input-logs: InSpec's stdin is a pipe, which ausearch would otherwise read
+describe command("ausearch --input-logs -m avc,user_avc -ts boot -i 2>/dev/null | grep -E 'scontext=[^ ]*:(httpd_t|procmail_t):' | grep 'permissive=0'") do
+  its('stdout') { should be_empty }
 end

@@ -1,3 +1,6 @@
+# kitchen.yml sets osl-selinux enforcing, so RT is proven under its policy
+include_recipe 'osl-selinux'
+
 # Download mailx/s-nail for testing the email queue later
 if node['platform_version'].to_i <= 8
   package %w(mailx jq)

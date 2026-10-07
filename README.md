@@ -16,10 +16,16 @@ into core (`RT::Extension::REST2`, `RT::Authen::Token`) are skipped from the
 
 ### TLS / reverse proxy
 
-This cookbook serves RT over **plain HTTP only**. TLS is expected to be
+By default this cookbook serves RT over **plain HTTP only**. TLS is expected to be
 terminated by an upstream HAProxy (or similar) reverse proxy that forwards to
 this backend over HTTP. Apache is configured with `osl-apache::mod_remoteip`
 so the real client IP is recovered from the `X-Forwarded-For` header.
+
+To terminate TLS on the RT host instead, set `ssl-certificate` to the id of an
+item in the `certificates` data bag. The cookbook then installs it with
+`certificate_manage`, listens on 443 and redirects port 80 to HTTPS. Requests
+for `internal-domain` are not redirected, because `rt-mailgate` and the `rt` CLI
+post to `http://<internal-domain>`.
 
 The list of trusted proxies defaults to OSUOSL's load balancers. For other
 deployments, override it on the node:
@@ -27,6 +33,18 @@ deployments, override it on the node:
 ```ruby
 node.default['osl-apache']['mod_remoteip']['trusted_proxy'] = %w(10.0.0.1)
 ```
+
+### SELinux
+
+RT's SELinux policy ships in the OSL `request-tracker-selinux` RPM, which this
+cookbook installs alongside `request-tracker`:
+
+- the `request_tracker` module
+- `/opt/rt/var` labelled `httpd_sys_rw_content_t`
+- the `httpd_can_sendmail` and `httpd_can_network_connect_db` booleans
+
+The cookbook sets no policy of its own. The kitchen suites converge with
+`osl-selinux` enforcing and fail on any `httpd_t` or `procmail_t` denial.
 
 ## Usage
 
@@ -67,6 +85,10 @@ Name             | Type   | Description                                         
 `plugins`        | Array  | A list of [plugins](https://rt-wiki.bestpractical.com/wiki/Extensions) to add to the RT site. On EL10/RT 5, extensions merged into core (`RT::Extension::REST2`, `RT::Authen::Token`) are automatically skipped. | `[]`
 `lifecycles`     | Hash   | Any [custom lifecycles](https://docs.bestpractical.com/rt/4.4.1/customizing/lifecycles.html) to make available in RT. Arbitrary lifecycles (including an `approvals` lifecycle) are emitted verbatim, so add them here rather than in code. | `{}` Provides default lifecycle.
 `extra-config`   | Hash   | Raw RT config options emitted verbatim into `RT_SiteConfig.pm`. Keys must be valid RT names (e.g. `$Timezone`, `$DefaultQueue`, `$ParseNewMessageForTicketCcs`). String values are quoted; numbers/literals are emitted as-is; keys beginning with `%` are treated as Perl literals (e.g. `%FullTextSearch`). Do **not** set `_Plugins`/`_Lifecycles` here — use `plugins`/`lifecycles`. | `{}`
+`ssl-certificate`| String | Opt-in: serve TLS on the RT host with this item from the `certificates` data bag (installed as `<id>.pem`, `<id>.key` and `<id>-bundle.crt` under `/etc/pki/tls`). Apache listens on 443 and port 80 redirects to HTTPS, except for `internal-domain`. Set `web-port` to `443` as well. | unset (HTTP only)
+`workers-per-cpu`| Integer| Opt-in: cap Apache prefork workers at this many per CPU core. It is never fewer than 5 and never more than osl-apache's memory-based limit. Every worker is a full RT interpreter, so on a CPU-bound host more workers only add contention. `3` is a good start. | unset (osl-apache sizes by memory)
+`clean-sessions` | String | Age for a daily `rt-clean-sessions --older <age> --skip-user` cron (`/etc/cron.d/rt-clean-sessions`, 03:15, as `apache`), in RT's `<NUM>[H\|D\|M\|Y]` format. RT never expires sessions itself. `--skip-user` keeps users logged in on more than one browser. Set `false` to remove the cron. | `30D`
+`fulltext-index` | Boolean| Opt-in: sets `%FullTextSearch` to `Indexed => 1` with RT's default index table (`AttachmentsIndex`, plus the `ContentIndex` column on Pg), and adds a `rt-fulltext-indexer --quiet` cron every 10 minutes. The index must exist first: run `/opt/rt/sbin/rt-setup-fulltext-index --dba <db-username> --dba-password <db-password>` once, off-peak, before turning this on. It tokenizes every attachment and drops any existing index table, so never rerun it on a live index. RT checks for the table only when it starts: if httpd started while the table was missing, full-text search stays off until httpd restarts. Restart httpd after the converge that turns this on. A `%FullTextSearch` in `extra-config` overrides this setting. | `false`
 
 ### Example Data Bag Attributes
 
@@ -149,6 +171,23 @@ osl_request_tracker 'requests.openpowerfoundation.org' do
   data_bag 'requests'
 end
 ```
+
+## Testing unpublished request-tracker RPMs
+
+To converge against `request-tracker` RPMs built in `rpms/request-tracker`
+before they're published, run `make repo` there, then set `OSL_RT_LOCAL_REPO`
+for kitchen with the openstack driver:
+
+```sh
+OSL_RT_LOCAL_REPO=1 kitchen test two-domain-almalinux-9
+```
+
+A `pre_converge` hook in `kitchen.openstack.yml` rsyncs
+`REPO/<release>` (from `~/git/osl/rpms/request-tracker`, or `OSL_RT_REPO`) to
+the instance. It then installs its `request-tracker-local.repo`, whose
+`priority=1` wins over the published repo. Without a build it prints a note and
+the published RPMs are used. Start from fresh instances, because the resource
+installs RT but never upgrades it.
 
 ## Contributing
 
