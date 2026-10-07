@@ -21,8 +21,11 @@ end
 execute 'rt-setup-fulltext-index' do
   notifies :restart, 'service[httpd for the full-text index]', :immediately
   command '/opt/rt/sbin/rt-setup-fulltext-index --dba rt-user --dba-password rt-password'
-  not_if osl_rt_db_guard(
-    { 'db' => { 'type' => 'mysql', 'name' => 'rt' }, 'db-username' => 'rt-user', 'db-password' => 'rt-password' },
-    "SHOW TABLES LIKE 'AttachmentsIndex'"
-  )
+  not_if do
+    osl_rt_db_row?(
+      { 'db' => { 'type' => 'mysql', 'host' => 'localhost', 'name' => 'rt' },
+        'db-username' => 'rt-user', 'db-password' => 'rt-password' },
+      "SHOW TABLES LIKE 'AttachmentsIndex'"
+    )
+  end
 end

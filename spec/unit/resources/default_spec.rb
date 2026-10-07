@@ -30,13 +30,28 @@ describe 'osl_request_tracker' do
   # Inject the resource into a blank base recipe. The name is the site fqdn
   # ('example.org'); the rest of the config comes from the stubbed
   # request-tracker/default data bag item (data_bag defaults to 'default').
-  def converge_rt(runner, fqdn = 'example.org')
-    runner.converge('osl-rt-test::blank') do
+  # `before` recipes compile ahead of the resource and `after` recipes behind it.
+  def converge_rt(runner, fqdn = 'example.org', before: [], after: [])
+    runner.converge('osl-rt-test::blank', *before) do
       recipe = Chef::Recipe.new('test', '_test', runner.run_context)
       recipe.instance_exec do
         osl_request_tracker fqdn
+        after.each { |r| include_recipe r }
       end
     end
+  end
+
+  def stub_tls_bag
+    stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+    allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+    stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                  'db-username': 'rt-user',
+                                                                  'db-password': 'rt-password',
+                                                                  'root-password': 'my-epic-rt',
+                                                                  'user': 'support',
+                                                                  'ssl-certificate': 'wildcard',
+                                                                  'queues': { 'Support': 'support' },
+                                                                })
   end
 
   ALL_PLATFORMS.each do |p|
@@ -50,8 +65,7 @@ describe 'osl_request_tracker' do
       before do
         stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
         # Simulate a fresh database so the one-time DB/queue setup runs.
-        stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-        stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+        allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
         stub_data_bag_item('request-tracker', 'default').and_return({
                                                                       'db-username': 'rt-user',
                                                                       'db-password': 'rt-password',
@@ -293,7 +307,8 @@ describe 'osl_request_tracker' do
         expect(resource.action).to eq([:nothing])
         expect(resource.sensitive).to be true
         expect(resource.command).to eq(<<~EOC)
-        mysql -u rt-user \
+        mysql -h localhost \
+          -u rt-user \
           -prt-password \
           -e 'UPDATE Users \
             SET Password=md5("my-epic-rt") \
@@ -472,8 +487,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -501,6 +515,37 @@ describe 'osl_request_tracker' do
       it { expect(helpers.osl_rt_max_workers(1, 3, 50)).to eq 5 }
       # never more than the memory-based limit
       it { expect(helpers.osl_rt_max_workers(16, 3, 30)).to eq 30 }
+    end
+
+    describe 'osl_rt_db_query' do
+      let(:helpers) { chef_run && Class.new { include Chef::Mixin::ShellOut, OslRT::Cookbook::Helpers }.new }
+      let(:rt_config) do
+        { 'db' => { 'type' => 'mysql', 'host' => 'db.example.org', 'name' => 'rt' },
+          'db-username' => 'rt-user', 'db-password' => 'rt-password' }
+      end
+
+      it 'connects to db.host with the password in the environment' do
+        expect(helpers).to receive(:shell_out).with(
+          'mysql', '--no-defaults', '-h', 'db.example.org', '-u', 'rt-user', '-N', '-B', '-e', "SHOW TABLES LIKE 'Users'", 'rt',
+          environment: { 'MYSQL_PWD' => 'rt-password' }
+        ).and_return(double(error?: false, stdout: "Users\n"))
+        expect(helpers.osl_rt_db_row?(rt_config, "SHOW TABLES LIKE 'Users'")).to be true
+      end
+
+      it 'connects to db.host on postgresql' do
+        expect(helpers).to receive(:shell_out).with(
+          'psql', '-h', 'db.example.org', '-U', 'rt-user', '-tAc', 'SELECT 1', 'rt',
+          environment: { 'PGPASSWORD' => 'rt-password' }
+        ).and_return(double(error?: false, stdout: "\n"))
+        pg_config = rt_config.merge('db' => rt_config['db'].merge('type' => 'Pg'))
+        expect(helpers.osl_rt_db_row?(pg_config, 'SELECT 1')).to be false
+      end
+
+      # An unreachable database must stop the run, not read as an empty one.
+      it 'raises when the client fails' do
+        allow(helpers).to receive(:shell_out).and_return(double(error?: true, stderr: "Can't connect\n"))
+        expect { helpers.osl_rt_db_row?(rt_config, 'SELECT 1') }.to raise_error(RuntimeError, /on db.example.org failed: Can't connect/)
+      end
     end
 
     it do
@@ -550,6 +595,48 @@ describe 'osl_request_tracker' do
     end
   end
 
+  # internal-web2's roles load osl-apache at compile time, after the RT recipe.
+  context 'with tls and osl-apache loaded after the resource' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner, after: %w(osl-apache::mon)) }
+
+    before { stub_tls_bag }
+
+    it { is_expected.to install_apache2_install('osuosl').with(listen: %w(80 443)) }
+    it { is_expected.to accept_osl_firewall_port('http').with(ports: %w(80 443)) }
+
+    it 'converges Apache and its modules ahead of the action' do
+      names = chef_run.resource_collection.all_resources.map(&:to_s)
+      rt = names.index('osl_request_tracker[example.org]')
+      expect(names.index('apache2_install[osuosl]')).to be < rt
+      expect(names.index('apache2_module[remoteip]')).to be < rt
+    end
+  end
+
+  context 'with tls and osl-apache loaded before the resource' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner, before: %w(osl-apache)) }
+
+    before { stub_tls_bag }
+
+    it do
+      expect { chef_run }.to raise_error(RuntimeError, /needs Apache to listen on 443, but osl-apache was loaded first/)
+    end
+  end
+
+  context 'with tls, osl-apache loaded first and listen already set' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+    default_attributes['osl-apache']['listen'] = %w(80 443)
+
+    cached(:chef_run) { converge_rt(chef_runner, before: %w(osl-apache)) }
+
+    before { stub_tls_bag }
+
+    it { is_expected.to install_apache2_install('osuosl').with(listen: %w(80 443)) }
+  end
+
   # Postgres keeps the index in a column of its own table.
   context 'with fulltext-index on a postgresql backend' do
     platform ALMA_9[:platform], ALMA_9[:version]
@@ -558,8 +645,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/to_regclass/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db': {
                                                                       'type': 'Pg',
@@ -593,8 +679,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -627,8 +712,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -652,8 +736,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -694,8 +777,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -728,8 +810,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -766,8 +847,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -799,8 +879,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -840,8 +919,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -871,8 +949,7 @@ describe 'osl_request_tracker' do
 
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
-      stub_command(/SHOW TABLES LIKE 'Users'/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db-username': 'rt-user',
                                                                     'db-password': 'rt-password',
@@ -905,8 +982,7 @@ describe 'osl_request_tracker' do
     before do
       stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
       # Fresh DB so the one-time DB/queue setup runs (Postgres guards use psql).
-      stub_command(/to_regclass/).and_return(false)
-      stub_command(/SELECT 1 FROM Queues WHERE Name=/).and_return(false)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
       stub_data_bag_item('request-tracker', 'default').and_return({
                                                                     'db': {
                                                                       'type': 'Pg',

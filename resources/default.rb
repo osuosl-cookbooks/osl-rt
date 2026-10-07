@@ -36,20 +36,22 @@ property :fqdn, String, name_property: true
 # plugins, lifecycles, etc.
 property :data_bag, String, default: 'default'
 
-action :create do
-  # Initalize the attributes, and overwrite the defaults. Loaded up front so the
-  # DB-engine-specific setup below (client packages, DB guards) can branch on the
-  # configured database type.
-  rt_config = osl_rt_load_config_defaults
-  rt_config = rt_config.merge(data_bag_item('request-tracker', new_resource.data_bag)) { |_key, _old_value, new_value| new_value }
-  # The resource's fqdn is authoritative for the site identity, overriding the
-  # data bag's (if any).
-  rt_config['fqdn'] = new_resource.fqdn
-  ssl_cert = rt_config['ssl-certificate']
-
-  # TLS terminates upstream at HAProxy unless the bag names a certificate to
-  # serve here; either way mod_remoteip recovers the client IP behind a proxy.
-  node.default['osl-apache']['listen'] = ssl_cert ? %w(80 443) : %w(80)
+# osl-apache reads listen at compile time, so set its attributes and load it when
+# the resource is declared; its resources then converge ahead of the action.
+def after_created
+  super
+  rt_config = osl_rt_config(data_bag, fqdn)
+  listen = osl_rt_listen(rt_config)
+  if run_context.loaded_recipe?('osl-apache')
+    missing = listen - osl_rt_listen_ports(node['osl-apache']['listen'])
+    unless missing.empty?
+      raise "osl_request_tracker[#{fqdn}] needs Apache to listen on #{missing.join(', ')}, but osl-apache " \
+            'was loaded first. Declare it before any recipe that includes osl-apache, or set ' \
+            "node['osl-apache']['listen'] at compile time."
+    end
+  else
+    node.default['osl-apache']['listen'] = listen
+  end
 
   # Every prefork child is a full RT interpreter, so size by cores, not memory.
   if rt_config['workers-per-cpu']
@@ -58,9 +60,16 @@ action :create do
     node.default['osl-apache']['serverlimit'] = workers
   end
 
-  include_recipe 'osl-apache'
-  include_recipe 'osl-apache::mod_remoteip'
-  include_recipe 'osl-apache::mod_perl'
+  # mod_remoteip recovers the client IP when TLS terminates at HAProxy.
+  run_context.include_recipe('osl-apache', 'osl-apache::mod_remoteip', 'osl-apache::mod_perl')
+end
+
+action :create do
+  # Loaded up front so the DB-engine-specific setup below (client packages, DB
+  # guards) can branch on the configured database type.
+  rt_config = osl_rt_config(new_resource.data_bag, new_resource.fqdn)
+  ssl_cert = rt_config['ssl-certificate']
+
   include_recipe 'yum-osuosl'
   include_recipe 'perl'
 
@@ -186,7 +195,7 @@ action :create do
         --dba-password #{rt_config['db-password']} \
         --skip-create
     EOC
-    not_if osl_rt_db_guard(rt_config, osl_rt_schema_present_query(rt_config))
+    not_if { osl_rt_db_row?(rt_config, osl_rt_schema_present_query(rt_config)) }
     sensitive true
     notifies :run, 'execute[Set root password]', :immediately
   end
@@ -269,7 +278,7 @@ action :create do
         name="#{pt}" correspondaddress="#{email}@#{mail_domain}" \
         commentaddress="#{email}-comment@#{mail_domain}"
       EOC
-      not_if osl_rt_db_guard(rt_config, "SELECT 1 FROM Queues WHERE Name='#{pt}'")
+      not_if { osl_rt_db_row?(rt_config, "SELECT 1 FROM Queues WHERE Name='#{pt}'") }
       sensitive true
     end
   end

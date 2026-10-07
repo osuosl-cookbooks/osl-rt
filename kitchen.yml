@@ -31,9 +31,11 @@ suites:
       - recipe[osl-rt-test::osl_request_tracker]
     provisioner:
       flavor_ref: 'c2.local.8c8m50d'
+  # osl-apache::mon loads osl-apache after the resource, as support.osuosl.org's roles do.
   - name: two-domain
     run_list:
       - recipe[osl-rt-test::two_domain]
+      - recipe[osl-apache::mon]
     provisioner:
       flavor_ref: 'c2.local.8c8m50d'
   # Same as the default suite but with a PostgreSQL backend (db.type = Pg).

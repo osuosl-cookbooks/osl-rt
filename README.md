@@ -27,6 +27,15 @@ item in the `certificates` data bag. The cookbook then installs it with
 for `internal-domain` are not redirected, because `rt-mailgate` and the `rt` CLI
 post to `http://<internal-domain>`.
 
+osl-apache reads its `listen` attribute while recipes compile. So the resource
+sets `listen`, and the `workers-per-cpu` limits, when it is declared, not when
+it converges. It includes `osl-apache`, `osl-apache::mod_remoteip` and
+`osl-apache::mod_perl` at the same point, so Apache is installed before the
+resource's action runs. Declare it before any recipe in the run list that
+includes osl-apache. If osl-apache has already been loaded without the ports this site
+needs, the resource raises an error at compile time. A wrapper that can't change
+the order can set `node['osl-apache']['listen']` itself first.
+
 The list of trusted proxies defaults to OSUOSL's load balancers. For other
 deployments, override it on the node:
 

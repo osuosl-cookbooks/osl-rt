@@ -35,6 +35,25 @@ module OslRT
         }
       end
 
+      # The defaults merged with the instance's data bag item. The resource's fqdn
+      # is authoritative for the site identity, overriding the bag's.
+      def osl_rt_config(data_bag, fqdn)
+        rt_config = osl_rt_load_config_defaults.merge(data_bag_item('request-tracker', data_bag)) { |_key, _old_value, new_value| new_value }
+        rt_config['fqdn'] = fqdn
+        rt_config
+      end
+
+      # Ports Apache must listen on; TLS is served here only with ssl-certificate,
+      # otherwise it terminates upstream at HAProxy.
+      def osl_rt_listen(rt_config)
+        rt_config['ssl-certificate'] ? %w(80 443) : %w(80)
+      end
+
+      # Ports from osl-apache listen entries, which may be "address:port".
+      def osl_rt_listen_ports(listen)
+        listen.map { |entry| entry.to_s.split(':').last }
+      end
+
       # Initalize the configuration options given the attributes
       def osl_rt_init_config(rt_config)
         # The public email domain may differ from the host/web domain (fqdn).
@@ -181,17 +200,28 @@ module OslRT
         node['platform_version'].to_i >= 10 ? 'lmdb' : 'hash'
       end
 
-      # Shell guard (for not_if/only_if) that succeeds when the SQL SELECT returns
-      # a row, so one-time DB/queue steps key off real DB state and skip an
-      # imported DB. Dispatches to the client for the configured engine.
-      def osl_rt_db_guard(rt_config, query)
-        if osl_rt_pg?(rt_config)
-          "PGPASSWORD='#{rt_config['db-password']}' psql -h #{rt_config['db']['host']} " \
-            "-U #{rt_config['db-username']} -tAc \"#{query}\" #{rt_config['db']['name']} 2>/dev/null | grep -q ."
-        else
-          "mysql -u #{rt_config['db-username']} -p#{rt_config['db-password']} " \
-            "-N -B -e \"#{query}\" #{rt_config['db']['name']} 2>/dev/null | grep -q ."
-        end
+      # Runs a query against RT's database and returns its output. Raises when the
+      # client fails, so an unreachable database never reads as an empty one.
+      def osl_rt_db_query(rt_config, query)
+        db = rt_config['db']
+        cmd, env =
+          if osl_rt_pg?(rt_config)
+            [%W(psql -h #{db['host']} -U #{rt_config['db-username']} -tAc #{query} #{db['name']}),
+             { 'PGPASSWORD' => rt_config['db-password'] }]
+          else
+            # --no-defaults: a ~/.my.cnf password would otherwise override MYSQL_PWD.
+            [%W(mysql --no-defaults -h #{db['host']} -u #{rt_config['db-username']} -N -B -e #{query} #{db['name']}),
+             { 'MYSQL_PWD' => rt_config['db-password'] }]
+          end
+        result = shell_out(*cmd, environment: env)
+        raise "Querying the RT database #{db['name']} on #{db['host']} failed: #{result.stderr.strip}" if result.error?
+        result.stdout
+      end
+
+      # True when the query returns a row, so one-time DB/queue steps key off real
+      # DB state and skip an imported DB.
+      def osl_rt_db_row?(rt_config, query)
+        !osl_rt_db_query(rt_config, query).strip.empty?
       end
 
       # Query that yields a row only once RT's schema has been loaded, used to
@@ -202,9 +232,8 @@ module OslRT
         osl_rt_pg?(rt_config) ? "SELECT to_regclass('users')" : "SHOW TABLES LIKE 'Users'"
       end
 
-      # Command to set RT's root password directly in the DB, fired only on a
-      # fresh init (never on import). RT accepts a bare MD5 hash, which both
-      # engines' md5() function produces over the cleartext password.
+      # Sets RT's root password in the DB on a fresh init only. RT accepts a bare
+      # MD5 hash, which both engines' md5() produces from the cleartext password.
       def osl_rt_set_root_password_command(rt_config)
         if osl_rt_pg?(rt_config)
           <<~EOC
@@ -215,7 +244,8 @@ module OslRT
           EOC
         else
           <<~EOC
-            mysql -u #{rt_config['db-username']} \
+            mysql -h #{rt_config['db']['host']} \
+              -u #{rt_config['db-username']} \
               -p#{rt_config['db-password']} \
               -e 'UPDATE Users \
                 SET Password=md5("#{rt_config['root-password']}") \
