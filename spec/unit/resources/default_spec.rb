@@ -252,6 +252,13 @@ describe 'osl_request_tracker' do
       # bounces don't dead-end at the local apache/root mailbox.
       it { expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($SetOutgoingMailFrom, 1);') }
 
+      # Bulk Update links that carry only a search skip RT's Referer check.
+      it do
+        expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content(
+          "Set(%ReferrerComponents, '/Search/Bulk.html' => [qw(Query Rows)]);"
+        )
+      end
+
       # No web-port/web-base-url in this data bag -> RT keeps its own defaults.
       it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('Set($WebPort,') }
 
@@ -670,7 +677,7 @@ describe 'osl_request_tracker' do
     end
   end
 
-  # An explicit extra-config %FullTextSearch wins over the generated one, and
+  # Explicit extra-config %FullTextSearch and %ReferrerComponents win over the generated ones, and
   # clean-sessions false removes the cron.
   context 'with an extra-config FullTextSearch and clean-sessions disabled' do
     platform ALMA_9[:platform], ALMA_9[:version]
@@ -689,6 +696,7 @@ describe 'osl_request_tracker' do
                                                                     'clean-sessions': false,
                                                                     'extra-config': {
                                                                       '%FullTextSearch': "Enable => 1, Indexed => 1, Table => 'RTIndex'",
+                                                                      '%ReferrerComponents': "'/Search/Bulk.html' => 0",
                                                                     },
                                                                     'queues': {
                                                                       'Support': 'support',
@@ -701,6 +709,11 @@ describe 'osl_request_tracker' do
         .with_content("Set(%FullTextSearch, Enable => 1, Indexed => 1, Table => 'RTIndex');")
     end
     it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content("'AttachmentsIndex'") }
+    it do
+      expect(chef_run).to render_file('/opt/rt/etc/RT_SiteConfig.pm')
+        .with_content("Set(%ReferrerComponents, '/Search/Bulk.html' => 0);")
+    end
+    it { expect(chef_run).to_not render_file('/opt/rt/etc/RT_SiteConfig.pm').with_content('[qw(Query Rows)]') }
     it { expect(chef_run).to delete_cron_d('rt-clean-sessions') }
   end
 
