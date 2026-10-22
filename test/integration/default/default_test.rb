@@ -53,10 +53,13 @@ end
 
 # Log in as root, then open Bulk Update with no Referer: a search-only link opens, one with any
 # other argument still stops at RT's CSRF warning.
+# RT 5 marks the session cookie secure, which curl's jar never sends over http,
+# so hand the login's cookie to the second request explicitly.
 def rt_bulk(args)
-  'curl -s -o /dev/null -c /tmp/rt-bulk-cookies -H "Host: example.org" -d user=root -d pass=my-epic-rt ' \
-    'http://127.0.0.1/NoAuth/Login.html && ' \
-    "curl -s -b /tmp/rt-bulk-cookies -H 'Host: example.org' 'http://127.0.0.1/Search/Bulk.html?#{args}'"
+  login = 'curl -s -o /dev/null -D - -H "Host: example.org" -d user=root -d pass=my-epic-rt ' \
+          'http://127.0.0.1/NoAuth/Login.html'
+  %(sh -c 'c=$(#{login} | sed -n "s/^set-cookie: \\([^;]*\\).*/\\1/Ip" | tr -d "\\r"); ) +
+    %(curl -s -H "Host: example.org" -H "Cookie: $c" "http://127.0.0.1/Search/Bulk.html?#{args}"')
 end
 
 describe command(rt_bulk('Query=id%3D1&Rows=1')) do
@@ -282,7 +285,8 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' 
   end
 end
 
-describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue' do
+# RT creates the ticket after mailx returns, so wait for it before listing.
+describe command("sh -c 'for i in $(seq 30); do HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject 2>/dev/null | grep -q support-test && break; sleep 2; done; HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue'") do
   its('exit_status') { should eq 0 }
   its('stdout') { should match /^1\s+Support\s+support-test\s+root@localhost$/ }
 end

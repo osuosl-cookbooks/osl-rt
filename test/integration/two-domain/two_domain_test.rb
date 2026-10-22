@@ -167,7 +167,8 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' 
   its('stdout') { should match(/Abuse/) }
 end
 
-describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue' do
+# RT creates the ticket after mailx returns, so wait for it before listing.
+describe command("sh -c 'for i in $(seq 30); do HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject 2>/dev/null | grep -q two-domain-test && break; sleep 2; done; HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Queue'") do
   its('exit_status') { should eq 0 }
   its('stdout') { should match(/two-domain-test/) }
 end
