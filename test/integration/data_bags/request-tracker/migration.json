@@ -3,6 +3,7 @@
   "db-password": "rt-password",
   "root-password": "my-epic-rt",
   "user": "support",
+  "spam-digest": ["spam-digest-test@localhost"],
   "db-upgrade": "4.4.4",
   "queues": {
     "Imported Queue": "imported",

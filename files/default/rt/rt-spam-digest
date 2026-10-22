@@ -1,0 +1,202 @@
+#!/opt/cinc/embedded/bin/ruby
+# frozen_string_literal: true
+
+# Mail a daily headers-only digest of the support mail procmail diverted to .Spam and
+# .AutoReply. osl-daily-triage's spamwatch.py parses the body. Managed by Chef!
+
+require 'etc'
+require 'open3'
+require 'optparse'
+require 'time'
+
+module RtSpamDigest
+  class Error < StandardError; end
+
+  FOLDERS = { 'Spam' => '.Spam', 'AutoReply' => '.AutoReply' }.freeze
+  HEADERS = %w(from subject x-original-to x-spam-status auto-submitted precedence list-id).freeze
+  HOURS = 24
+  LIMIT = 200
+  HEADER_BYTES = 65_536
+  SUBJECT_WIDTH = 90
+  FIELD_WIDTH = 200
+  # spamwatch.py's TAG: a ticket tag cut off the subject would hide its ticket match.
+  TAG_RE = /\[[\w.-]+ #\d{3,6}\]/.freeze
+  ENCODED_WORD = /=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=/.freeze
+  SENDMAIL = '/usr/sbin/sendmail'
+
+  Entry = Struct.new(:name, :path, :mtime, :headers)
+
+  module_function
+
+  # The header block only: stops at the first blank line and never reads the body.
+  def read_headers(path)
+    headers = {}
+    last = nil
+    bytes = 0
+    File.open(path, 'rb') do |f|
+      f.each_line do |raw|
+        bytes += raw.bytesize
+        break if bytes > HEADER_BYTES
+
+        line = raw.chomp
+        break if line.empty?
+
+        if line.start_with?(' ', "\t")
+          headers[last] << ' ' << line.strip if last
+          next
+        end
+        name, value = line.split(':', 2)
+        key = name.strip.downcase
+        last = value && HEADERS.include?(key) && !headers.key?(key) ? key : nil
+        headers[key] = +value.strip if last
+      end
+    end
+    headers
+  end
+
+  def utf8(value)
+    value.dup.force_encoding(Encoding::UTF_8).scrub('?')
+  end
+
+  # RFC 2047 encoded words. Whitespace between two adjacent words is not text.
+  def decode(value)
+    value.gsub(/(\?=)\s+(?==\?)/, '\1').gsub(ENCODED_WORD) do
+      charset, encoding, text = Regexp.last_match.captures
+      bytes = encoding.casecmp?('B') ? text.unpack1('m') : text.tr('_', ' ').unpack1('M')
+      begin
+        bytes.force_encoding(charset.sub(/\*.*\z/, ''))
+             .encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: '?')
+      rescue ArgumentError, EncodingError
+        utf8(bytes)
+      end
+    end
+  end
+
+  # Run after decoding: an encoded newline would otherwise forge a digest line.
+  # [[:space:]] covers U+2028/U+2029, which Python's splitlines also splits on.
+  def clean(value)
+    value.to_s.gsub(/[[:cntrl:][:space:]]+/, ' ').strip
+  end
+
+  def header(headers, key, decoded: false)
+    value = utf8(headers[key].to_s)
+    clean(decoded ? decode(value) : value)
+  end
+
+  def cut_subject(subject)
+    return subject if subject.length <= SUBJECT_WIDTH
+
+    head = subject[0, SUBJECT_WIDTH]
+    tag = subject[TAG_RE]
+    return head if tag.nil? || head.include?(tag) || tag.length > SUBJECT_WIDTH / 2
+
+    "#{subject[0, SUBJECT_WIDTH - tag.length - 3].rstrip} … #{tag}"
+  end
+
+  def score(status)
+    score = status[/\bscore=(-?\d+(?:\.\d+)?)/, 1]
+    return unless score
+
+    required = status[/\brequired=(-?\d+(?:\.\d+)?)/, 1]
+    required ? "#{score} (required #{required})" : score
+  end
+
+  # Mirrors the order of the .AutoReply rules in the support user's .procmailrc.
+  def reason(headers)
+    auto = header(headers, 'auto-submitted')
+    precedence = header(headers, 'precedence')
+    list_id = header(headers, 'list-id')
+    if auto.match?(/\Aauto-(replied|notified)/i)
+      "Auto-Submitted: #{auto}"
+    elsif precedence.match?(/\A(list|junk)/i)
+      "Precedence: #{precedence}"
+    elsif !list_id.empty?
+      "List-Id: #{list_id}"
+    end
+  end
+
+  # Newest first, from new/ and cur/; tmp/ holds deliveries still being written.
+  def entries(dir, since)
+    found = %w(new cur).flat_map { |sub| Dir.glob(File.join(dir, sub, '*')) }.filter_map do |path|
+      stat = File.lstat(path)
+      Entry.new(File.basename(path), path, stat.mtime) if stat.file? && stat.mtime >= since
+    rescue Errno::ENOENT
+      nil
+    end
+    found.sort_by { |e| -e.mtime.to_f }
+  end
+
+  def headers_for(entry)
+    read_headers(entry.path)
+  rescue SystemCallError
+    {}
+  end
+
+  def field(name, value)
+    format('    %-8s %s', name, value)
+  end
+
+  def entry_lines(label, entry)
+    h = headers_for(entry)
+    lines = [
+      format('  %s  %s', entry.mtime.strftime('%Y-%m-%d %H:%M'), entry.name),
+      field('from', header(h, 'from', decoded: true)[0, FIELD_WIDTH]),
+      field('to', header(h, 'x-original-to')[0, FIELD_WIDTH]),
+      field('subject', cut_subject(header(h, 'subject', decoded: true))),
+    ]
+    extra = label == 'Spam' ? score(header(h, 'x-spam-status')) : reason(h)
+    lines << field(label == 'Spam' ? 'score' : 'reason', extra[0, FIELD_WIDTH]) if extra
+    lines << ''
+  end
+
+  def digest(maildir, fqdn)
+    since = Time.now - (HOURS * 3600)
+    folders = FOLDERS.transform_values { |dir| [File.join(maildir, dir), entries(File.join(maildir, dir), since)] }
+    lines = [format('support spam digest -- %s, last %d hours', fqdn, HOURS)]
+    folders.each do |label, (dir, list)|
+      lines << "== #{label}"
+      lines << (File.directory?(dir) ? '  (none)' : "  (missing folder #{dir})") << '' if list.empty?
+      list.first(LIMIT).each { |e| lines.concat(entry_lines(label, e)) }
+      lines << format('  ... and %d more', list.size - LIMIT) << '' if list.size > LIMIT
+    end
+    [folders.values.sum { |_, list| list.size }, "#{lines.join("\n")}\n"]
+  end
+
+  def deliver(fqdn, to, count, body)
+    message = +''
+    message << "From: postmaster@#{fqdn}\n" << "To: #{to.join(', ')}\n"
+    message << "Subject: support spam digest: #{count} diverted on #{fqdn}\n"
+    message << "Date: #{Time.now.rfc2822}\n" << "Auto-Submitted: auto-generated\n"
+    message << "MIME-Version: 1.0\n" << "Content-Type: text/plain; charset=UTF-8\n"
+    message << "Content-Transfer-Encoding: 8bit\n\n" << body
+    out, status = Open3.capture2e(SENDMAIL, '-i', '-f', "postmaster@#{fqdn}", '--', *to, stdin_data: message)
+    raise Error, "sendmail exited #{status.exitstatus}: #{out.strip}" unless status.success?
+  end
+end
+
+options = { to: [] }
+parser = OptionParser.new do |o|
+  o.banner = 'usage: rt-spam-digest --fqdn NAME [--to ADDR[,ADDR]]... [--maildir DIR] [--stdout]'
+  o.on('--fqdn=NAME', 'the host name for the From address and subject') { |v| options[:fqdn] = v }
+  o.on('--to=ADDR', 'recipients; repeatable, may be comma-separated') do |v|
+    options[:to].concat(v.split(',').map(&:strip).reject(&:empty?))
+  end
+  o.on('--maildir=DIR', 'the maildir holding .Spam and .AutoReply (default ~/Mail)') { |v| options[:maildir] = v }
+  o.on('--stdout', 'print instead of mailing') { options[:stdout] = true }
+end
+parser.parse!(ARGV)
+abort(parser.banner) if options[:fqdn].to_s.empty? || (options[:to].empty? && !options[:stdout])
+
+begin
+  # The passwd home, not $HOME, which runuser and sudo may leave pointing at root's.
+  maildir = options[:maildir] || File.join(Etc.getpwuid(Process.uid).dir, 'Mail')
+  count, body = RtSpamDigest.digest(maildir, options[:fqdn])
+  if options[:stdout]
+    puts body
+  else
+    RtSpamDigest.deliver(options[:fqdn], options[:to], count, body)
+  end
+rescue RtSpamDigest::Error, SystemCallError => e
+  warn "rt-spam-digest: #{e.message}"
+  exit 1
+end
