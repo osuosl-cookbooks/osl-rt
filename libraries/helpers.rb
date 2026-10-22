@@ -114,6 +114,10 @@ module OslRT
         fulltext = osl_rt_fulltext_config(rt_config)
         config_options['%FullTextSearch'] = fulltext if fulltext
 
+        # Bulk Update links that carry only a search (Query, Rows) skip RT's Referer check, so outside
+        # pages can link to them; any other argument is still checked. Overridable via 'extra-config'.
+        config_options['%ReferrerComponents'] = "'/Search/Bulk.html' => [qw(Query Rows)]"
+
         # Merge any raw RT options provided in the data bag (e.g. '$Timezone',
         # '$DefaultQueue', '%FullTextSearch'). These are emitted verbatim by
         # parse_config, so the keys must be valid RT config names.

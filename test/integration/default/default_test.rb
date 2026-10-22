@@ -48,6 +48,24 @@ end
 
 describe file('/opt/rt/etc/RT_SiteConfig.pm') do
   its('content') { should_not match /FullTextSearch/ }
+  its('content') { should include "Set(%ReferrerComponents, '/Search/Bulk.html' => [qw(Query Rows)]);" }
+end
+
+# Log in as root, then open Bulk Update with no Referer: a search-only link opens, one with any
+# other argument still stops at RT's CSRF warning.
+def rt_bulk(args)
+  'curl -s -o /dev/null -c /tmp/rt-bulk-cookies -H "Host: example.org" -d user=root -d pass=my-epic-rt ' \
+    'http://127.0.0.1/NoAuth/Login.html && ' \
+    "curl -s -b /tmp/rt-bulk-cookies -H 'Host: example.org' 'http://127.0.0.1/Search/Bulk.html?#{args}'"
+end
+
+describe command(rt_bulk('Query=id%3D1&Rows=1')) do
+  its('stdout') { should match /Update multiple tickets/ }
+  its('stdout') { should_not match %r{<title>Possible cross-site request forgery</title>} }
+end
+
+describe command(rt_bulk('Query=id%3D1&Rows=1&Format=id')) do
+  its('stdout') { should match %r{<title>Possible cross-site request forgery</title>} }
 end
 
 # rt-clean-sessions runs as apache, which must be able to read RT's config.
