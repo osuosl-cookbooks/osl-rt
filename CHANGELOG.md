@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+4.1.2 (2026-10-22)
+------------------
+- Let search-only Bulk Update links skip RT's Referer check
+
 4.1.1 (2026-10-07)
 ------------------
 - Fix the DB host check and Apache listen order for RT on internal-web2
