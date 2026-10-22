@@ -5,7 +5,7 @@
 # .AutoReply. osl-daily-triage's spamwatch.py parses the body. Managed by Chef!
 
 require 'etc'
-require 'open3'
+require 'mixlib/shellout'
 require 'optparse'
 require 'time'
 
@@ -23,6 +23,12 @@ module RtSpamDigest
   TAG_RE = /\[[\w.-]+ #\d{3,6}\]/.freeze
   ENCODED_WORD = /=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=/.freeze
   SENDMAIL = '/usr/sbin/sendmail'
+  SENDMAIL_TIMEOUT = 120
+  # Ruby's UTF-16 and UTF-32 need a BOM to decode; RFC 2781 reads one without as big-endian.
+  BOMS = {
+    Encoding::UTF_16 => { "\xFE\xFF".b => Encoding::UTF_16BE, "\xFF\xFE".b => Encoding::UTF_16LE },
+    Encoding::UTF_32 => { "\x00\x00\xFE\xFF".b => Encoding::UTF_32BE, "\xFF\xFE\x00\x00".b => Encoding::UTF_32LE },
+  }.freeze
 
   Entry = Struct.new(:name, :path, :mtime, :headers)
 
@@ -64,12 +70,22 @@ module RtSpamDigest
       charset, encoding, text = Regexp.last_match.captures
       bytes = encoding.casecmp?('B') ? text.unpack1('m') : text.tr('_', ' ').unpack1('M')
       begin
-        bytes.force_encoding(charset.sub(/\*.*\z/, ''))
-             .encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: '?')
+        encoding, bytes = text_encoding(charset.sub(/\*.*\z/, ''), bytes)
+        bytes.force_encoding(encoding).encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: '?')
       rescue ArgumentError, EncodingError
         utf8(bytes)
       end
     end
+  end
+
+  # The encoding to read bytes in, and the bytes without any BOM.
+  def text_encoding(charset, bytes)
+    encoding = Encoding.find(charset)
+    boms = BOMS[encoding]
+    return [encoding, bytes] unless boms
+
+    bom, found = boms.find { |b, _| bytes.start_with?(b) }
+    found ? [found, bytes.byteslice(bom.bytesize..)] : [boms.values.first, bytes]
   end
 
   # Run after decoding: an encoded newline would otherwise forge a digest line.
@@ -169,8 +185,12 @@ module RtSpamDigest
     message << "Date: #{Time.now.rfc2822}\n" << "Auto-Submitted: auto-generated\n"
     message << "MIME-Version: 1.0\n" << "Content-Type: text/plain; charset=UTF-8\n"
     message << "Content-Transfer-Encoding: 8bit\n\n" << body
-    out, status = Open3.capture2e(SENDMAIL, '-i', '-f', "postmaster@#{fqdn}", '--', *to, stdin_data: message)
-    raise Error, "sendmail exited #{status.exitstatus}: #{out.strip}" unless status.success?
+    shell = Mixlib::ShellOut.new(SENDMAIL, '-i', '-f', "postmaster@#{fqdn}", '--', *to,
+                                 input: message, timeout: SENDMAIL_TIMEOUT)
+    shell.run_command
+    raise Error, "sendmail exited #{shell.exitstatus}: #{shell.stderr.strip}" unless shell.status.success?
+  rescue Mixlib::ShellOut::CommandTimeout
+    raise Error, "sendmail timed out after #{SENDMAIL_TIMEOUT}s; is postfix accepting mail?"
   end
 end
 
