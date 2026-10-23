@@ -1,0 +1,32 @@
+#!/bin/bash
+# rt-spam-digest checks as one root command: InSpec's sudo covers only the first
+# command of an inline script (see osl-rt-test-mail). Usage: $0 fixture|service
+fixture=/root/osl-rt-spam-digest-fixture
+
+case $1 in
+fixture)
+  # The window is the last 24 hours, so set mtimes now rather than at converge.
+  touch -d '-1 hour' "$fixture"/.Spam/new/* "$fixture"/.AutoReply/cur/* || exit 2
+  touch -d '-2 days' "$fixture"/.Spam/cur/* || exit 2
+  exec /usr/local/sbin/rt-spam-digest --stdout --fqdn digest.example.org --maildir "$fixture"
+  ;;
+service)
+  # Count digests already delivered, so a rerun of verify needs a new one.
+  inbox=/home/spam-digest-test/Mail/new
+  pattern='^Subject: support spam digest: [0-9]+ diverted on [^ ]+\.[^ ]+$'
+  count() { grep -lE "$pattern" "$inbox"/* 2>/dev/null | wc -l; }
+  before=$(count) start=$(date +%s)
+  systemctl start rt-spam-digest.service || exit 2
+  for _ in $(seq 1 30); do
+    [ "$(count)" -gt "$before" ] && exit 0
+    sleep 2
+  done
+  echo "no new digest in $inbox; postfix since $start:" >&2
+  journalctl -q -u postfix --since "@$start" >&2
+  exit 1
+  ;;
+*)
+  echo "usage: $0 fixture|service" >&2
+  exit 64
+  ;;
+esac

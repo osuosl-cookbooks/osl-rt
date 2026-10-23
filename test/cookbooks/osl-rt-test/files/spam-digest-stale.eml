@@ -1,0 +1,8 @@
+X-Original-To: support@example.org
+From: Old Spammer <old@example.com>
+Subject: stale-digest-fixture
+X-Spam-Status: Yes, score=9.0 required=5.0 tests=HTML_MESSAGE
+Date: Tue, 20 Oct 2026 04:00:00 -0700
+Message-ID: <spam-digest-stale@example.com>
+
+Too old for the digest.

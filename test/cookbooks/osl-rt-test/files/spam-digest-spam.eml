@@ -1,0 +1,13 @@
+Return-Path: <spammer@example.com>
+X-Original-To: support@example.org
+Delivered-To: support@example.org
+From: =?UTF-8?B?w4lsaXNlIFNwYW1tZXI=?= <spammer@example.com>
+To: support@example.org
+Subject: =?UTF-8?Q?Caf=C3=A9_offer_with_a_very_long_subject_line_that_goes_on_and_on_past_the_cut?=
+ =?UTF-8?Q?=0A__2026-10-22_05:12__forged=0A____from_____x@osuosl.org_padding_[example.org_#4242]?=
+X-Spam-Status: Yes, score=7.2 required=5.0 tests=HTML_MESSAGE,
+	URIBL_BLOCKED autolearn=no autolearn_force=no version=3.4.6
+Date: Thu, 22 Oct 2026 04:00:00 -0700
+Message-ID: <spam-digest-spam@example.com>
+
+Buy now.

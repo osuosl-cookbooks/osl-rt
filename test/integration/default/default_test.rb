@@ -53,10 +53,13 @@ end
 
 # Log in as root, then open Bulk Update with no Referer: a search-only link opens, one with any
 # other argument still stops at RT's CSRF warning.
+# RT 5 marks the session cookie secure, which curl's jar never sends over http,
+# so hand the login's cookie to the second request explicitly.
 def rt_bulk(args)
-  'curl -s -o /dev/null -c /tmp/rt-bulk-cookies -H "Host: example.org" -d user=root -d pass=my-epic-rt ' \
-    'http://127.0.0.1/NoAuth/Login.html && ' \
-    "curl -s -b /tmp/rt-bulk-cookies -H 'Host: example.org' 'http://127.0.0.1/Search/Bulk.html?#{args}'"
+  login = 'curl -s -o /dev/null -D - -H "Host: example.org" -d user=root -d pass=my-epic-rt ' \
+          'http://127.0.0.1/NoAuth/Login.html'
+  %(sh -c 'c=$(#{login} | sed -n "s/^set-cookie: \\([^;]*\\).*/\\1/Ip" | tr -d "\\r"); ) +
+    %(curl -s -H "Host: example.org" -H "Cookie: $c" "http://127.0.0.1/Search/Bulk.html?#{args}"')
 end
 
 describe command(rt_bulk('Query=id%3D1&Rows=1')) do
@@ -282,7 +285,8 @@ describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t queue -f Name' 
   end
 end
 
-describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue' do
+# RT creates the ticket after mailx returns, so wait for it before listing.
+describe command("sh -c 'for i in $(seq 30); do HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject 2>/dev/null | grep -q support-test && break; sleep 2; done; HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject,Requestors,Queue'") do
   its('exit_status') { should eq 0 }
   its('stdout') { should match /^1\s+Support\s+support-test\s+root@localhost$/ }
 end
@@ -328,6 +332,63 @@ end
 
 describe command 'HOSTALIASES=/root/.rthost /opt/rt/bin/rt ls -t ticket -f Subject' do
   its('stdout') { should_not match /auto-replied-test/ }
+end
+
+describe file '/usr/local/sbin/rt-spam-digest' do
+  its('owner') { should eq 'root' }
+  its('mode') { should cmp '0755' }
+end
+
+describe file '/etc/systemd/system/rt-spam-digest.service' do
+  its('content') { should match /^User=support$/ }
+  its('content') { should match %r{^Environment=TZ=America/Los_Angeles$} }
+  its('content') { should match %r{^ExecStart=/usr/local/sbin/rt-spam-digest --fqdn \S+\.\S+ --to spam-digest-test@localhost$} }
+end
+
+describe file '/etc/systemd/system/rt-spam-digest.timer' do
+  its('content') { should match %r{^OnCalendar=\*-\*-\* 06:00:00 America/Los_Angeles$} }
+  its('content') { should match /^RandomizedDelaySec=5m$/ }
+  its('content') { should match /^FixedRandomDelay=true$/ }
+  its('content') { should match /^Persistent=true$/ }
+end
+
+describe service 'rt-spam-digest.timer' do
+  it { should be_enabled }
+  it { should be_running }
+end
+
+# The whole digest of the fixture maildir, so the stale message, the forged line
+# in the spam's encoded Subject and anything from the auto-reply's body are absent.
+spam_digest = <<~DIGEST
+  support spam digest -- digest.example.org, last 24 hours
+  == Spam
+    DATE  1761134400.M100P1.fixture
+      from     Élise Spammer <spammer@example.com>
+      to       support@example.org
+      subject  Café offer with a very long subject line that goes on and on past th … [example.org #4242]
+      score    7.2 (required 5.0)
+
+  == AutoReply
+    DATE  1761134401.M101P1.fixture:2,S
+      from     Out Of Office <ooo@example.net>
+      to       support@example.org
+      subject  Out of office
+      reason   Precedence: junk
+
+DIGEST
+spam_digest_run = command '/usr/local/bin/osl-rt-test-spam-digest fixture'
+
+describe spam_digest_run do
+  its('exit_status') { should eq 0 }
+end
+
+describe spam_digest_run.stdout.dup.force_encoding('UTF-8') do
+  it { should match /\A#{Regexp.escape(spam_digest).gsub('DATE', '\d{4}-\d{2}-\d{2} \d{2}:\d{2}')}\z/ }
+end
+
+# The unit itself, as support under enforcing SELinux, delivered to the bag's recipient.
+describe command '/usr/local/bin/osl-rt-test-spam-digest service' do
+  its('exit_status') { should eq 0 }
 end
 
 # RT_SiteConfig.d drop-in: the snippet dropped by the test recipe is loaded by

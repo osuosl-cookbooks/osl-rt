@@ -32,6 +32,7 @@ module OslRT
           'internal-domain' => 'rtlocal',
           'plugins' => [],
           'clean-sessions' => '30D',
+          'spam-digest' => ['ramereth@osuosl.org'],
         }
       end
 
@@ -281,6 +282,28 @@ module OslRT
         raise ArgumentError, "osl-rt: invalid clean-sessions age '#{age}'" unless age.to_s.match?(/\A\d+[HDMY]?\z/)
 
         "/opt/rt/sbin/rt-clean-sessions --older #{age} --skip-user"
+      end
+
+      # Recipients of rt-spam-digest, nil when 'spam-digest' is false. They reach a
+      # systemd ExecStart, which expands %, $ and \, so only plain addresses pass.
+      def osl_rt_spam_digest(rt_config)
+        return unless rt_config['spam-digest']
+
+        to = Array(rt_config['spam-digest'])
+        bad = to.reject { |a| a.to_s.match?(/\A[\w.+-]+@[\w.-]+\z/) }
+        raise ArgumentError, 'osl-rt: spam-digest needs at least one address' if to.empty?
+        raise ArgumentError, "osl-rt: invalid spam-digest address(es) #{bad.join(', ')}" unless bad.empty?
+
+        to
+      end
+
+      # The name rt-spam-digest mails as; spamwatch.py drops a digest from a dotless one.
+      # Ohai leaves fqdn nil when the hostname does not resolve.
+      def osl_rt_digest_fqdn
+        fqdn = node['fqdn']
+        raise "osl-rt: rt-spam-digest needs a node fqdn with a domain, got '#{fqdn}'" unless fqdn&.include?('.')
+
+        fqdn
       end
 
       # Where certificate_manage puts the files for a certificates item on EL.

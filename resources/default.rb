@@ -376,4 +376,60 @@ action :create do
     command '/opt/rt/sbin/rt-fulltext-indexer --quiet'
     action rt_config['fulltext-index'] ? :create : :delete
   end
+
+  # Daily headers-only digest of what procmail diverted, read by the daily triage.
+  spam_digest = osl_rt_spam_digest(rt_config)
+  if spam_digest
+    cookbook_file '/usr/local/sbin/rt-spam-digest' do
+      source 'rt/rt-spam-digest'
+      cookbook 'osl-rt'
+      mode '0755'
+    end
+
+    # TZ makes the entry times match the triage's, which runs on Pacific time.
+    systemd_unit 'rt-spam-digest.service' do
+      content <<~EOU
+        [Unit]
+        Description=Mail a headers-only digest of diverted support mail
+        After=postfix.service
+
+        [Service]
+        Type=oneshot
+        User=#{mail_user}
+        Environment=TZ=America/Los_Angeles
+        ExecStart=/usr/local/sbin/rt-spam-digest --fqdn #{osl_rt_digest_fqdn} --to #{spam_digest.join(',')}
+      EOU
+      action :create
+    end
+
+    # FixedRandomDelay keeps runs 24 hours apart, so the 24-hour windows leave no gap.
+    systemd_unit 'rt-spam-digest.timer' do
+      content <<~EOU
+        [Unit]
+        Description=Daily digest of diverted support mail
+
+        [Timer]
+        OnCalendar=*-*-* 06:00:00 America/Los_Angeles
+        RandomizedDelaySec=5m
+        FixedRandomDelay=true
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+      EOU
+      action [:create, :enable, :start]
+    end
+  else
+    systemd_unit 'rt-spam-digest.timer' do
+      action [:stop, :disable, :delete]
+    end
+
+    systemd_unit 'rt-spam-digest.service' do
+      action :delete
+    end
+
+    file '/usr/local/sbin/rt-spam-digest' do
+      action :delete
+    end
+  end
 end

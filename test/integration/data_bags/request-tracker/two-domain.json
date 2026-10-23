@@ -3,6 +3,7 @@
   "db-password": "rt-password",
   "root-password": "my-epic-rt",
   "user": "support",
+  "spam-digest": ["spam-digest-test@localhost"],
   "mail-domain": "example.org",
   "ssl-certificate": "wildcard",
   "web-port": 443,

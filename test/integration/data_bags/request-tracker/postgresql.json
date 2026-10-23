@@ -8,6 +8,7 @@
   "db-password": "rt-password",
   "root-password": "my-epic-rt",
   "user": "support",
+  "spam-digest": ["spam-digest-test@localhost"],
   "queues": {
     "Support": "support",
     "Frontend Team": "frontend",

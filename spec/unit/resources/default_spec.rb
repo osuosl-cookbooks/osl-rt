@@ -481,6 +481,51 @@ describe 'osl_request_tracker' do
       it { expect(chef_run.node['osl-apache']['listen']).to eq %w(80) }
       it { expect(chef_run.node['osl-apache']['maxrequestworkers']).to be_nil }
       it { expect(chef_run.node['osl-apache']['serverlimit']).to be_nil }
+
+      # The spam digest is on by default, mailed as the node's fqdn.
+      it do
+        expect(chef_run).to create_cookbook_file('/usr/local/sbin/rt-spam-digest').with(
+          source: 'rt/rt-spam-digest',
+          cookbook: 'osl-rt',
+          mode: '0755'
+        )
+      end
+
+      it do
+        expect(chef_run).to create_systemd_unit('rt-spam-digest.service').with(
+          content: <<~EOU
+            [Unit]
+            Description=Mail a headers-only digest of diverted support mail
+            After=postfix.service
+
+            [Service]
+            Type=oneshot
+            User=support
+            Environment=TZ=America/Los_Angeles
+            ExecStart=/usr/local/sbin/rt-spam-digest --fqdn fauxhai.local --to ramereth@osuosl.org
+          EOU
+        )
+      end
+
+      it do
+        expect(chef_run).to create_systemd_unit('rt-spam-digest.timer').with(
+          content: <<~EOU
+            [Unit]
+            Description=Daily digest of diverted support mail
+
+            [Timer]
+            OnCalendar=*-*-* 06:00:00 America/Los_Angeles
+            RandomizedDelaySec=5m
+            FixedRandomDelay=true
+            Persistent=true
+
+            [Install]
+            WantedBy=timers.target
+          EOU
+        )
+      end
+      it { expect(chef_run).to enable_systemd_unit('rt-spam-digest.timer') }
+      it { expect(chef_run).to start_systemd_unit('rt-spam-digest.timer') }
     end
   end
 
@@ -739,6 +784,133 @@ describe 'osl_request_tracker' do
     end
 
     it { expect { chef_run }.to raise_error(ArgumentError, /invalid clean-sessions age/) }
+  end
+
+  context 'with two spam-digest addresses and another mail user' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'requests',
+                                                                    'spam-digest': %w(postmaster@osuosl.org ramereth@osuosl.org),
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it do
+      expect(chef_run).to create_systemd_unit('rt-spam-digest.service').with_content(
+        %r{^User=requests\nEnvironment=TZ=America/Los_Angeles\nExecStart=/usr/local/sbin/rt-spam-digest --fqdn fauxhai.local --to postmaster@osuosl.org,ramereth@osuosl.org$}
+      )
+    end
+  end
+
+  # spam-digest false removes what an earlier converge installed.
+  context 'with spam-digest disabled' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'spam-digest': false,
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect(chef_run).to stop_systemd_unit('rt-spam-digest.timer') }
+    it { expect(chef_run).to disable_systemd_unit('rt-spam-digest.timer') }
+    it { expect(chef_run).to delete_systemd_unit('rt-spam-digest.timer') }
+    it { expect(chef_run).to delete_systemd_unit('rt-spam-digest.service') }
+    it { expect(chef_run).to delete_file('/usr/local/sbin/rt-spam-digest') }
+    it { expect(chef_run).to_not create_systemd_unit('rt-spam-digest.timer') }
+  end
+
+  # The addresses land in a systemd ExecStart, so anything that is not plainly an address is refused.
+  context 'with an invalid spam-digest address' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'spam-digest': ['root@localhost', '$USER@example.org'],
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect { chef_run }.to raise_error(ArgumentError, /invalid spam-digest address\(es\) \$USER@example.org/) }
+  end
+
+  context 'with an empty spam-digest list' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'spam-digest': [],
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect { chef_run }.to raise_error(ArgumentError, /spam-digest needs at least one address/) }
+  end
+
+  # spamwatch.py drops a digest whose From has no osuosl.org domain, so a dotless fqdn fails the run.
+  context 'with a node fqdn that has no domain' do
+    platform ALMA_9[:platform], ALMA_9[:version]
+    automatic_attributes['fqdn'] = 'rt'
+
+    cached(:chef_run) { converge_rt(chef_runner) }
+
+    before do
+      stub_command('/usr/bin/test /etc/alternatives/mta -ef /usr/sbin/sendmail.postfix').and_return(true)
+      allow_any_instance_of(Chef::Resource).to receive(:osl_rt_db_row?).and_return(false)
+      stub_data_bag_item('request-tracker', 'default').and_return({
+                                                                    'db-username': 'rt-user',
+                                                                    'db-password': 'rt-password',
+                                                                    'root-password': 'my-epic-rt',
+                                                                    'user': 'support',
+                                                                    'queues': {
+                                                                      'Support': 'support',
+                                                                    },
+                                                                  })
+    end
+
+    it { expect { chef_run }.to raise_error(RuntimeError, /needs a node fqdn with a domain, got 'rt'/) }
   end
 
   # Optional branding (custom logo)
