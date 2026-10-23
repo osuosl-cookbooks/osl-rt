@@ -2,6 +2,10 @@
 
 This file is used to list changes made in each version of the osl-rt cookbook.
 
+4.2.0 (2026-10-23)
+------------------
+- Mail a daily digest of diverted support mail
+
 4.1.2 (2026-10-22)
 ------------------
 - Let search-only Bulk Update links skip RT's Referer check
